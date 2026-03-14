@@ -1,7 +1,7 @@
 """
 src/download.py — Xeno-canto audio downloader for bird species classification.
 
-Downloads .mp3 recordings from the Xeno-canto API and organises them under
+Downloads .mp3 recordings from the Xeno-canto API v3 and organises them under
 data/raw/<species_name>/.  Compatible with local environments and Google Colab.
 
 Usage:
@@ -12,9 +12,9 @@ Usage:
     downloader.download_species(species, max_per_species=50)
 
 Environment variable:
-    XENO_CANTO_API_KEY — optional; the module works without an API key for the
-                         public Xeno-canto v2 endpoint.  Set it if you have a
-                         registered key to get higher rate limits.
+    XENO_CANTO_API_KEY — required for API v3 (mandatory since October 2025).
+                         Obtain a free key at https://xeno-canto.org/article/854
+                         after registering and verifying your email address.
 """
 
 import os
@@ -33,7 +33,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-XENO_CANTO_API_V2 = "https://xeno-canto.org/api/2/recordings"
+XENO_CANTO_API_V3 = "https://xeno-canto.org/api/3/recordings"
 
 
 def _sanitise_name(name: str) -> str:
@@ -48,7 +48,9 @@ def _get_api_key() -> Optional[str]:
     Resolution order:
     1. Environment variable ``XENO_CANTO_API_KEY``
     2. Interactive prompt (hidden input so the key is not echoed)
-    3. None — proceed without a key (public endpoints still work)
+
+    The API v3 requires a key. Obtain one for free at:
+    https://xeno-canto.org/article/854
     """
     key = os.environ.get("XENO_CANTO_API_KEY")
     if key:
@@ -58,23 +60,25 @@ def _get_api_key() -> Optional[str]:
     # Interactive prompt — works in terminal and Colab
     try:
         key = getpass.getpass(
-            "Xeno-canto API key (press Enter to skip): "
+            "Xeno-canto API key (required for API v3 — see https://xeno-canto.org/article/854): "
         ).strip()
     except (EOFError, OSError):
-        # Non-interactive environment (e.g. CI): skip silently
         key = ""
 
     if key:
         logger.info("API key provided interactively.")
         return key
 
-    logger.info("No API key provided — using public access.")
+    logger.warning(
+        "No API key provided. API v3 requires a key — requests will likely fail. "
+        "Register at xeno-canto.org and set XENO_CANTO_API_KEY."
+    )
     return None
 
 
 class XenoCantoDownloader:
     """
-    Download bird audio recordings from the Xeno-canto API.
+    Download bird audio recordings from the Xeno-canto API v3.
 
     Parameters
     ----------
@@ -84,6 +88,7 @@ class XenoCantoDownloader:
     api_key : str | None
         Xeno-canto API key.  When *None* the module tries the environment
         variable ``XENO_CANTO_API_KEY`` and then an interactive prompt.
+        Required since October 2025 — obtain at https://xeno-canto.org/article/854
     request_delay : float
         Seconds to wait between HTTP requests (be polite to the API).
     """
@@ -99,8 +104,6 @@ class XenoCantoDownloader:
         self.api_key = api_key or _get_api_key()
         self.request_delay = request_delay
         self._session = requests.Session()
-        if self.api_key:
-            self._session.headers.update({"X-API-Key": self.api_key})
 
     # ------------------------------------------------------------------
     # Public API
@@ -137,12 +140,16 @@ class XenoCantoDownloader:
                 "query": f"{species} q:{quality}",
                 "page": page,
             }
+            # API v3 requires the key as a query parameter
+            if self.api_key:
+                params["key"] = self.api_key
+
             logger.info(
                 "Searching '%s' (quality>=%s) — page %d …", species, quality, page
             )
             try:
                 resp = self._session.get(
-                    XENO_CANTO_API_V2, params=params, timeout=30
+                    XENO_CANTO_API_V3, params=params, timeout=30
                 )
                 resp.raise_for_status()
             except requests.RequestException as exc:
