@@ -1,0 +1,44 @@
+# Bird Acoustics Classifier — default configuration
+
+data:
+  raw_dir: data/raw
+  processed_dir: data/processed
+
+species:
+  - Turdus merula
+  - Erithacus rubecula
+  - Parus major
+  - Fringilla coelebs
+  - Sylvia atricapilla
+
+download:
+  max_per_species: 100
+  quality: "A"          # A–E; "A" = best quality only
+  countries: []         # e.g. ["Italy", "Austria"] — empty = worldwide
+
+audio:
+  sample_rate: 22050
+  clip_duration: 5.0    # seconds per spectrogram tile
+  n_mels: 128
+  n_fft: 2048
+  hop_length: 512
+  f_min: 500.0          # Hz — reduces low-frequency noise (wind, traffic)
+  f_max: 15000.0        # Hz
+  top_db: 80.0          # dynamic range for log-amplitude clipping
+  img_size: [224, 224]  # (W, H) px — matches EfficientNet/ResNet input
+  clip_overlap: 0.0     # 0.0 = no overlap; 0.5 = 50 % overlap
+
+training:
+  model: efficientnet_b0
+  batch_size: 32
+  epochs: 30
+  learning_rate: 0.001
+  val_split: 0.15
+  test_split: 0.15
+  seed: 42
+  num_workers: 4
+  output_dir: outputs
+
+mlflow:
+  experiment_name: bird-acoustics-classifier
+  tracking_uri: mlruns
