@@ -54,6 +54,12 @@ training:
   seed: 42
   num_workers: 4
   output_dir: models
+  checkpoint_name: best_model.pt
+  augment_strategy: specaugment  # 'none' | 'basic' | 'specaugment'
+  label_smoothing: 0.1           # 0.0 = off
+  use_weighted_sampler: true     # balance rare species in training batches
+  progressive_unfreeze: true     # freeze backbone, train head first
+  unfreeze_epoch: 5              # epoch at which the backbone is unfrozen
 
 mlflow:
   experiment_name: bird-acoustics-classifier

@@ -30,7 +30,7 @@ from PIL import Image
 from sklearn.model_selection import train_test_split
 from torch.optim import Adam
 from torch.optim.lr_scheduler import CosineAnnealingLR
-from torch.utils.data import DataLoader, Dataset, Subset
+from torch.utils.data import DataLoader, Dataset, Subset, WeightedRandomSampler
 from torchvision import models, transforms
 from tqdm.auto import tqdm
 
@@ -48,6 +48,63 @@ def _safe_num_workers(n: int) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Custom spectrogram transforms (applied on tensors after ToTensor)
+# ---------------------------------------------------------------------------
+
+class FrequencyMasking:
+    """Zero out *num_masks* random horizontal bands of up to *max_mask_param* rows.
+
+    Simulates recordings where certain frequency ranges are masked by noise
+    or outside the microphone's sensitivity — forces the model to classify
+    with partial frequency information.
+    """
+
+    def __init__(self, max_mask_param: int = 20, num_masks: int = 2):
+        self.max_mask_param = max_mask_param
+        self.num_masks = num_masks
+
+    def __call__(self, tensor: torch.Tensor) -> torch.Tensor:
+        _, H, _ = tensor.shape
+        tensor = tensor.clone()
+        for _ in range(self.num_masks):
+            f = random.randint(1, self.max_mask_param)
+            f0 = random.randint(0, max(0, H - f))
+            tensor[:, f0:f0 + f, :] = 0.0
+        return tensor
+
+
+class TimeMasking:
+    """Zero out *num_masks* random vertical bands of up to *max_mask_param* columns.
+
+    Simulates recordings with brief silences, wind bursts, or clipping —
+    forces the model to classify even when part of the call is missing.
+    """
+
+    def __init__(self, max_mask_param: int = 40, num_masks: int = 2):
+        self.max_mask_param = max_mask_param
+        self.num_masks = num_masks
+
+    def __call__(self, tensor: torch.Tensor) -> torch.Tensor:
+        _, _, W = tensor.shape
+        tensor = tensor.clone()
+        for _ in range(self.num_masks):
+            t = random.randint(1, self.max_mask_param)
+            t0 = random.randint(0, max(0, W - t))
+            tensor[:, :, t0:t0 + t] = 0.0
+        return tensor
+
+
+class GaussianNoise:
+    """Add zero-mean Gaussian noise — simulates background noise in field recordings."""
+
+    def __init__(self, std: float = 0.02):
+        self.std = std
+
+    def __call__(self, tensor: torch.Tensor) -> torch.Tensor:
+        return tensor + torch.randn_like(tensor) * self.std
+
+
+# ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
@@ -55,21 +112,31 @@ def _safe_num_workers(n: int) -> int:
 class TrainingConfig:
     """All tunable parameters for the training pipeline."""
 
-    processed_dir:    str   = "data/processed"
-    output_dir:       str   = "models"
-    model_name:       str   = "efficientnet_b0"
-    epochs:           int   = 30
-    batch_size:       int   = 32
-    learning_rate:    float = 1e-3
-    val_split:        float = 0.15
-    test_split:       float = 0.15
-    seed:             int   = 42
-    num_workers:      int   = 4
-    img_size:         Tuple[int, int] = field(default_factory=lambda: (224, 224))
-    use_scheduler:    bool  = True
-    patience:         int   = 7       # early-stopping patience (epochs)
-    experiment_name:  str   = "bird-acoustics-classifier"
-    tracking_uri:     str   = "mlruns"
+    processed_dir:        str   = "data/processed"
+    output_dir:           str   = "models"
+    checkpoint_name:      str   = "best_model.pt"
+    model_name:           str   = "efficientnet_b0"
+    epochs:               int   = 30
+    batch_size:           int   = 32
+    learning_rate:        float = 1e-3
+    val_split:            float = 0.15
+    test_split:           float = 0.15
+    seed:                 int   = 42
+    num_workers:          int   = 4
+    img_size:             Tuple[int, int] = field(default_factory=lambda: (224, 224))
+    use_scheduler:        bool  = True
+    patience:             int   = 7
+    # Augmentation strategy: 'none' | 'basic' | 'specaugment'
+    augment_strategy:     str   = "specaugment"
+    # Label smoothing: 0.0 = off, 0.1 recommended to reduce overconfidence
+    label_smoothing:      float = 0.1
+    # WeightedRandomSampler to balance rare species during training
+    use_weighted_sampler: bool  = True
+    # Progressive unfreezing: train head only → unfreeze backbone at unfreeze_epoch
+    progressive_unfreeze: bool  = True
+    unfreeze_epoch:       int   = 5
+    experiment_name:      str   = "bird-acoustics-classifier"
+    tracking_uri:         str   = "mlruns"
 
     @classmethod
     def from_yaml(cls, path: str = "config/default.yaml") -> "TrainingConfig":
@@ -80,19 +147,25 @@ class TrainingConfig:
         m = cfg.get("mlflow",   {})
         a = cfg.get("audio",    {})
         return cls(
-            processed_dir   = cfg["data"]["processed_dir"],
-            output_dir      = t.get("output_dir",    "models"),
-            model_name      = t.get("model",          "efficientnet_b0"),
-            epochs          = t.get("epochs",         30),
-            batch_size      = t.get("batch_size",     32),
-            learning_rate   = t.get("learning_rate",  1e-3),
-            val_split       = t.get("val_split",      0.15),
-            test_split      = t.get("test_split",     0.15),
-            seed            = t.get("seed",           42),
-            num_workers     = t.get("num_workers",    4),
-            img_size        = tuple(a.get("img_size", [224, 224])),
-            experiment_name = m.get("experiment_name", "bird-acoustics-classifier"),
-            tracking_uri    = m.get("tracking_uri",    "mlruns"),
+            processed_dir        = cfg["data"]["processed_dir"],
+            output_dir           = t.get("output_dir",           "models"),
+            checkpoint_name      = t.get("checkpoint_name",      "best_model.pt"),
+            model_name           = t.get("model",                "efficientnet_b0"),
+            epochs               = t.get("epochs",               30),
+            batch_size           = t.get("batch_size",           32),
+            learning_rate        = t.get("learning_rate",        1e-3),
+            val_split            = t.get("val_split",            0.15),
+            test_split           = t.get("test_split",           0.15),
+            seed                 = t.get("seed",                 42),
+            num_workers          = t.get("num_workers",          4),
+            img_size             = tuple(a.get("img_size",       [224, 224])),
+            augment_strategy     = t.get("augment_strategy",     "specaugment"),
+            label_smoothing      = t.get("label_smoothing",      0.1),
+            use_weighted_sampler = t.get("use_weighted_sampler", True),
+            progressive_unfreeze = t.get("progressive_unfreeze", True),
+            unfreeze_epoch       = t.get("unfreeze_epoch",       5),
+            experiment_name      = m.get("experiment_name",      "bird-acoustics-classifier"),
+            tracking_uri         = m.get("tracking_uri",         "mlruns"),
         )
 
 
@@ -157,33 +230,51 @@ class BirdDataset(Dataset):
 
 def get_transforms(
     img_size: Tuple[int, int] = (224, 224),
-    augment: bool = True,
+    augment_strategy: str = "specaugment",
 ):
-    """Returns (train_transform, val_transform)."""
+    """Return (train_transform, val_transform).
+
+    augment_strategy
+    ----------------
+    ``'none'``
+        No augmentation — pure baseline / ablation.
+    ``'basic'``
+        Original approach: RandomHorizontalFlip + ColorJitter.
+        Kept for comparison; not recommended for spectrograms.
+    ``'specaugment'``
+        Domain-appropriate pipeline:
+
+        * FrequencyMasking — masks random frequency bands
+        * TimeMasking      — masks random time segments
+        * GaussianNoise    — simulates field recording noise
+        * RandomErasing    — drops random rectangular patches
+    """
     mean = [0.485, 0.456, 0.406]
     std  = [0.229, 0.224, 0.225]
 
-    train_tf = transforms.Compose(
-        [
-            transforms.Resize(img_size),
-            *(
-                [
-                    transforms.RandomHorizontalFlip(),
-                    transforms.ColorJitter(brightness=0.2, contrast=0.2),
-                ]
-                if augment else []
-            ),
-            transforms.ToTensor(),
-            transforms.Normalize(mean, std),
+    base      = [transforms.Resize(img_size)]
+    to_tensor = [transforms.ToTensor(), transforms.Normalize(mean, std)]
+
+    if augment_strategy == "basic":
+        pil_aug    = [
+            transforms.RandomHorizontalFlip(),
+            transforms.ColorJitter(brightness=0.2, contrast=0.2),
         ]
-    )
-    val_tf = transforms.Compose(
-        [
-            transforms.Resize(img_size),
-            transforms.ToTensor(),
-            transforms.Normalize(mean, std),
+        tensor_aug = []
+    elif augment_strategy == "specaugment":
+        pil_aug    = []
+        tensor_aug = [
+            FrequencyMasking(max_mask_param=20, num_masks=2),
+            TimeMasking(max_mask_param=40, num_masks=2),
+            GaussianNoise(std=0.02),
+            transforms.RandomErasing(p=0.3, scale=(0.02, 0.15)),
         ]
-    )
+    else:  # 'none'
+        pil_aug    = []
+        tensor_aug = []
+
+    train_tf = transforms.Compose(base + pil_aug + to_tensor + tensor_aug)
+    val_tf   = transforms.Compose(base + to_tensor)
     return train_tf, val_tf
 
 
@@ -267,9 +358,8 @@ class BirdTrainer:
     ) -> Tuple[DataLoader, DataLoader, DataLoader, int]:
         """Stratified train / val / test split. Returns (train, val, test, num_classes)."""
         cfg = self.cfg
-        train_tf, val_tf = get_transforms(cfg.img_size, augment=True)
+        train_tf, val_tf = get_transforms(cfg.img_size, augment_strategy=cfg.augment_strategy)
 
-        # Reference dataset to get the full index/label list
         ref_ds  = BirdDataset(cfg.processed_dir, transform=None, species=species)
         n       = len(ref_ds)
         indices = list(range(n))
@@ -278,7 +368,6 @@ class BirdTrainer:
         self.classes = ref_ds.classes
         num_classes  = ref_ds.num_classes
 
-        # Stratified split: train+val vs test
         val_size_adjusted = cfg.val_split / (1.0 - cfg.test_split)
         train_idx, test_idx = train_test_split(
             indices, test_size=cfg.test_split, stratify=labels, random_state=cfg.seed
@@ -300,15 +389,26 @@ class BirdTrainer:
 
         nw = _safe_num_workers(cfg.num_workers)
         kw = dict(
-            batch_size       = cfg.batch_size,
-            num_workers      = nw,
-            pin_memory       = self.device.type == "cuda",
+            batch_size         = cfg.batch_size,
+            num_workers        = nw,
+            pin_memory         = self.device.type == "cuda",
             persistent_workers = nw > 0,
         )
+
+        # WeightedRandomSampler: over-sample rare species during training
+        if cfg.use_weighted_sampler:
+            class_counts  = np.bincount(train_labels, minlength=num_classes).astype(float)
+            class_weights = 1.0 / np.maximum(class_counts, 1.0)
+            sample_w = torch.tensor([class_weights[l] for l in train_labels], dtype=torch.float)
+            sampler  = WeightedRandomSampler(sample_w, num_samples=len(sample_w), replacement=True)
+            train_loader = DataLoader(_subset(train_idx, train_tf), sampler=sampler, **kw)
+        else:
+            train_loader = DataLoader(_subset(train_idx, train_tf), shuffle=True, **kw)
+
         return (
-            DataLoader(_subset(train_idx, train_tf), shuffle=True,  **kw),
-            DataLoader(_subset(val_idx,   val_tf),   shuffle=False, **kw),
-            DataLoader(_subset(test_idx,  val_tf),   shuffle=False, **kw),
+            train_loader,
+            DataLoader(_subset(val_idx,  val_tf), shuffle=False, **kw),
+            DataLoader(_subset(test_idx, val_tf), shuffle=False, **kw),
             num_classes,
         )
 
@@ -322,22 +422,37 @@ class BirdTrainer:
         Returns
         -------
         best_path : Path
-            Location of the best checkpoint (``models/best_model.pt``).
+            Location of the best checkpoint.
         history : dict
-            Per-epoch metrics for plotting::
+            Per-epoch metrics::
 
                 {
                   "train_loss": [...], "train_acc": [...],
                   "val_loss":   [...], "val_acc":   [...],
                   "lr":         [...],
+                  "test_loss":  float, "test_acc":  float,
                 }
         """
         cfg = self.cfg
         train_loader, val_loader, test_loader, num_classes = self.build_dataloaders(species)
 
         model     = build_model(num_classes).to(self.device)
-        criterion = nn.CrossEntropyLoss()
-        optimizer = Adam(model.parameters(), lr=cfg.learning_rate)
+        criterion = nn.CrossEntropyLoss(label_smoothing=cfg.label_smoothing)
+
+        # Progressive unfreezing: freeze backbone, train only the head first
+        if cfg.progressive_unfreeze:
+            for param in model.features.parameters():
+                param.requires_grad = False
+            optimizer = Adam(
+                filter(lambda p: p.requires_grad, model.parameters()),
+                lr=cfg.learning_rate,
+            )
+            logger.info(
+                "Progressive unfreeze ON — backbone frozen for first %d epochs", cfg.unfreeze_epoch
+            )
+        else:
+            optimizer = Adam(model.parameters(), lr=cfg.learning_rate)
+
         scheduler = (
             CosineAnnealingLR(optimizer, T_max=cfg.epochs, eta_min=1e-6)
             if cfg.use_scheduler else None
@@ -345,7 +460,7 @@ class BirdTrainer:
 
         best_val_loss = float("inf")
         patience_cnt  = 0
-        best_path     = Path(cfg.output_dir) / "best_model.pt"
+        best_path     = Path(cfg.output_dir) / cfg.checkpoint_name
         history: Dict[str, List[float]] = {
             "train_loss": [], "train_acc": [],
             "val_loss":   [], "val_acc":   [],
@@ -355,23 +470,30 @@ class BirdTrainer:
         mlflow.set_tracking_uri(cfg.tracking_uri)
         mlflow.set_experiment(cfg.experiment_name)
 
-        # Table header (printed once before the loop)
-        _HDR = f"{'Epoch':>8} │ {'Train Loss':>10} {'Train Acc':>9} │ {'Val Loss':>8} {'Val Acc':>7} │ {'LR':>9}"
+        _HDR = (
+            f"{'Epoch':>8} │ {'Train Loss':>10} {'Train Acc':>9} │ "
+            f"{'Val Loss':>8} {'Val Acc':>7} │ {'LR':>9}"
+        )
         _SEP = "─" * len(_HDR)
 
         with mlflow.start_run():
             mlflow.log_params({
-                "model":         cfg.model_name,
-                "epochs":        cfg.epochs,
-                "batch_size":    cfg.batch_size,
-                "learning_rate": cfg.learning_rate,
-                "val_split":     cfg.val_split,
-                "test_split":    cfg.test_split,
-                "seed":          cfg.seed,
-                "num_classes":   num_classes,
-                "img_size":      f"{cfg.img_size[0]}x{cfg.img_size[1]}",
-                "device":        str(self.device),
-                "scheduler":     "cosine" if cfg.use_scheduler else "none",
+                "model":                cfg.model_name,
+                "epochs":               cfg.epochs,
+                "batch_size":           cfg.batch_size,
+                "learning_rate":        cfg.learning_rate,
+                "val_split":            cfg.val_split,
+                "test_split":           cfg.test_split,
+                "seed":                 cfg.seed,
+                "num_classes":          num_classes,
+                "img_size":             f"{cfg.img_size[0]}x{cfg.img_size[1]}",
+                "device":               str(self.device),
+                "scheduler":            "cosine" if cfg.use_scheduler else "none",
+                "augment_strategy":     cfg.augment_strategy,
+                "label_smoothing":      cfg.label_smoothing,
+                "use_weighted_sampler": cfg.use_weighted_sampler,
+                "progressive_unfreeze": cfg.progressive_unfreeze,
+                "unfreeze_epoch":       cfg.unfreeze_epoch,
             })
 
             print(_SEP)
@@ -379,6 +501,20 @@ class BirdTrainer:
             print(_SEP)
 
             for epoch in range(1, cfg.epochs + 1):
+
+                # Unfreeze backbone after warm-up epochs
+                if cfg.progressive_unfreeze and epoch == cfg.unfreeze_epoch + 1:
+                    for param in model.features.parameters():
+                        param.requires_grad = True
+                    optimizer.add_param_group({
+                        "params": list(model.features.parameters()),
+                        "lr":     cfg.learning_rate * 0.1,
+                    })
+                    logger.info(
+                        "Backbone unfrozen at epoch %d — backbone lr=%.2e",
+                        epoch, cfg.learning_rate * 0.1,
+                    )
+
                 train_loss, train_acc = self._run_epoch(train_loader, model, criterion, optimizer)
                 val_loss,   val_acc   = self._run_epoch(val_loader,   model, criterion)
                 lr = optimizer.param_groups[0]["lr"]
@@ -386,7 +522,6 @@ class BirdTrainer:
                 if scheduler:
                     scheduler.step()
 
-                # Log to MLflow
                 mlflow.log_metrics(
                     {
                         "train_loss": train_loss,
@@ -398,14 +533,12 @@ class BirdTrainer:
                     step=epoch,
                 )
 
-                # Append to history
                 history["train_loss"].append(train_loss)
                 history["train_acc"].append(train_acc)
                 history["val_loss"].append(val_loss)
                 history["val_acc"].append(val_acc)
                 history["lr"].append(lr)
 
-                # Checkpoint
                 checkpoint_marker = "  "
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
@@ -428,12 +561,17 @@ class BirdTrainer:
                 else:
                     patience_cnt += 1
 
+                unfreeze_tag = (
+                    " [unfreeze]"
+                    if cfg.progressive_unfreeze and epoch == cfg.unfreeze_epoch + 1
+                    else ""
+                )
                 print(
                     f"{epoch:>4}/{cfg.epochs:<4} │ "
                     f"{train_loss:>10.4f} {train_acc:>9.3f} │ "
                     f"{val_loss:>8.4f} {val_acc:>7.3f} │ "
                     f"{lr:>9.2e}"
-                    f"{checkpoint_marker}"
+                    f"{checkpoint_marker}{unfreeze_tag}"
                 )
 
                 if patience_cnt >= cfg.patience:
@@ -443,7 +581,6 @@ class BirdTrainer:
 
             print(_SEP)
 
-            # Final test evaluation
             test_loss, test_acc = self._run_epoch(test_loader, model, criterion)
             mlflow.log_metrics({"test_loss": test_loss, "test_acc": test_acc})
             mlflow.log_artifact(str(best_path))
@@ -459,8 +596,7 @@ class BirdTrainer:
         checkpoint_path: str | Path,
         species: Optional[List[str]] = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Load a checkpoint and run inference on the test split.
+        """Load a checkpoint and run inference on the test split.
 
         Returns
         -------
@@ -487,9 +623,11 @@ class BirdTrainer:
 # Inference helper (for deployment / app)
 # ---------------------------------------------------------------------------
 
-def load_model(checkpoint_path: str | Path, device: str = "cpu") -> Tuple[nn.Module, List[str], Tuple[int, int]]:
-    """
-    Load a saved checkpoint for inference.
+def load_model(
+    checkpoint_path: str | Path,
+    device: str = "cpu",
+) -> Tuple[nn.Module, List[str], Tuple[int, int]]:
+    """Load a saved checkpoint for inference.
 
     Returns
     -------
@@ -497,7 +635,7 @@ def load_model(checkpoint_path: str | Path, device: str = "cpu") -> Tuple[nn.Mod
     classes   : list of class names
     img_size  : (W, H) tuple
     """
-    ckpt       = torch.load(checkpoint_path, map_location=device)
+    ckpt        = torch.load(checkpoint_path, map_location=device)
     num_classes = ckpt["num_classes"]
     model       = build_model(num_classes, pretrained=False)
     model.load_state_dict(ckpt["model_state_dict"])
@@ -511,13 +649,12 @@ def predict(
     device: str = "cpu",
     top_k: int = 5,
 ) -> List[Tuple[str, float]]:
-    """
-    Predict the species for a single spectrogram image.
+    """Predict the species for a single spectrogram image.
 
     Returns a list of (class_name, probability) tuples, sorted by probability.
     """
     model, classes, img_size = load_model(checkpoint_path, device)
-    _, val_tf = get_transforms(img_size, augment=False)
+    _, val_tf = get_transforms(img_size, augment_strategy="none")
 
     img    = Image.open(image_path).convert("RGB")
     tensor = val_tf(img).unsqueeze(0).to(device)
