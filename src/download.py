@@ -115,6 +115,7 @@ class XenoCantoDownloader:
         species: str,
         quality: str = "A",
         max_results: int = 100,
+        countries: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Search Xeno-canto for recordings of *species*.
@@ -127,6 +128,10 @@ class XenoCantoDownloader:
             Minimum recording quality rating (A–E).  Default ``"A"``.
         max_results : int
             Maximum number of recordings to return (across all pages).
+        countries : list[str] | None
+            If provided, restrict results to these countries
+            (e.g. ``["Italy", "Austria", "Switzerland"]``).
+            Multiple values are combined as OR by the API.
 
         Returns
         -------
@@ -136,9 +141,13 @@ class XenoCantoDownloader:
         recordings: List[Dict[str, Any]] = []
         page = 1
 
+        country_filter = ""
+        if countries:
+            country_filter = " " + " ".join(f"cnt:{c}" for c in countries)
+
         while len(recordings) < max_results:
             params: Dict[str, Any] = {
-                "query": f'sp:"{species}" q:{quality}',
+                "query": f'sp:"{species}" q:{quality}{country_filter}',
                 "page": page,
             }
             # API v3 requires the key as a query parameter
@@ -227,6 +236,7 @@ class XenoCantoDownloader:
         species_list: List[str],
         max_per_species: int = 50,
         quality: str = "A",
+        countries: Optional[List[str]] = None,
     ) -> Dict[str, List[Path]]:
         """
         Download recordings for a list of species.
@@ -239,6 +249,8 @@ class XenoCantoDownloader:
             Maximum recordings to download per species.
         quality : str
             Minimum Xeno-canto quality rating (A–E).
+        countries : list[str] | None
+            Restrict downloads to recordings from these countries.
 
         Returns
         -------
@@ -254,7 +266,7 @@ class XenoCantoDownloader:
             species_dir = self.output_dir / safe_name
 
             recordings = self.search_species(
-                species, quality=quality, max_results=max_per_species
+                species, quality=quality, max_results=max_per_species, countries=countries
             )
             logger.info("Found %d recording(s) for '%s'.", len(recordings), species)
 
