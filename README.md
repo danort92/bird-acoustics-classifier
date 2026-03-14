@@ -8,10 +8,10 @@ Target habitat: **Alpine zone** (Italy / Austria / Switzerland) — 20 character
 
 | Step | Module | Notebook | CLI script |
 |------|--------|----------|------------|
-| 1. Download audio | `src/download.py` | `01_download.ipynb` | `scripts/download.py` |
-| 2. Audio → mel spectrograms | `src/preprocessing.py` | `02_preprocessing.ipynb` | `scripts/preprocess.py` |
-| 3. Train EfficientNet | *(coming)* | `03_training.ipynb` | `scripts/train.py` |
-| 4. Evaluate & track metrics | *(coming)* | `04_evaluation.ipynb` | `scripts/evaluate.py` |
+| 1. Download audio | `src/download.py` | `pipeline.ipynb` | `scripts/download.py` |
+| 2. Audio → mel spectrograms | `src/preprocessing.py` | `pipeline.ipynb` | `scripts/preprocess.py` |
+| 3. Train EfficientNet | *(coming)* | *(coming)* | `scripts/train.py` |
+| 4. Evaluate & track metrics | *(coming)* | *(coming)* | `scripts/evaluate.py` |
 | 5. Interactive demo | *(coming)* | — | Gradio app |
 
 ## Project structure
@@ -24,7 +24,8 @@ bird-acoustics-classifier/
 │   ├── raw/                # .mp3 recordings from Xeno-canto (per species)
 │   └── processed/          # mel spectrogram .png tiles (per species)
 ├── models/                 # saved model checkpoints
-├── notebooks/              # step-by-step Jupyter / Colab notebooks
+├── notebooks/
+│   └── pipeline.ipynb      # full pipeline: download → preprocessing → summary
 ├── outputs/                # training artefacts (loss curves, confusion matrices)
 ├── reports/                # evaluation reports and plots
 ├── scripts/                # CLI entry points (mirror of notebooks, terminal-friendly)
@@ -43,12 +44,11 @@ bird-acoustics-classifier/
 └── requirements.txt
 ```
 
-## Notebooks
+## Notebook
 
 | Notebook | Description | Colab |
 |----------|-------------|-------|
-| `01_download.ipynb` | Download `.mp3` recordings from Xeno-canto API | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/danort92/bird-acoustics-classifier/blob/claude/setup-project-structure-lVRTH/notebooks/01_download.ipynb) |
-| `02_preprocessing.ipynb` | Convert audio → mel spectrogram PNG tiles | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/danort92/bird-acoustics-classifier/blob/claude/setup-project-structure-lVRTH/notebooks/02_preprocessing.ipynb) |
+| `pipeline.ipynb` | Full pipeline: download → preprocessing → dataset summary | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/danort92/bird-acoustics-classifier/blob/main/notebooks/pipeline.ipynb) |
 
 ### Running locally (recommended)
 
@@ -56,14 +56,12 @@ bird-acoustics-classifier/
 git clone https://github.com/danort92/bird-acoustics-classifier.git
 cd bird-acoustics-classifier
 pip install -r requirements.txt
-jupyter notebook
+jupyter notebook notebooks/pipeline.ipynb
 ```
-
-Open the notebooks in order from the repo root. Data is saved in `data/raw/` and `data/processed/` and persists between sessions automatically.
 
 ### Google Colab
 
-The Colab badge opens the notebook directly. Each notebook has a short setup cell (clone repo + pip install). **Data is not persisted between sessions** — if you close the session you need to re-run notebook 01 to download the files again. For large datasets or repeated work, running locally is more practical.
+Open the badge above, then **Runtime → Run all**. The setup cell clones the repo, installs dependencies, and symlinks `data/raw` and `data/processed` to Google Drive so files survive session restarts.
 
 ## CLI Scripts
 
