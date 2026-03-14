@@ -2,7 +2,30 @@
 
 Automatic bird species recognition from audio recordings using **EfficientNet fine-tuning on mel spectrograms**, with data sourced from the **Xeno-canto API**.
 
-Target habitat: **Alpine zone** (Italy / Austria / Switzerland) — 20 characteristic species.
+Target habitat: **Alpine zone** (Italy / Austria / Switzerland) — 20 characteristic species:
+
+| Species | Common name | Habitat |
+|---------|-------------|---------|
+| *Turdus torquatus* | Ring ouzel | Rocky slopes, high-altitude forests |
+| *Phoenicurus ochruros* | Black redstart | Rocky terrain, mountain villages |
+| *Prunella collaris* | Alpine accentor | High rocky areas above treeline |
+| *Pyrrhocorax graculus* | Yellow-billed chough | Alpine cliffs and glaciers |
+| *Pyrrhocorax pyrrhocorax* | Red-billed chough | Alpine meadows and cliffs |
+| *Tichodroma muraria* | Wallcreeper | Vertical rock faces |
+| *Anthus spinoletta* | Water pipit | Alpine meadows and streams |
+| *Montifringilla nivalis* | White-winged snowfinch | Above treeline, snowfields |
+| *Lagopus muta* | Rock ptarmigan | High alpine tundra |
+| *Dryocopus martius* | Black woodpecker | Subalpine conifer forests |
+| *Tetrao urogallus* | Western capercaillie | Old-growth conifer forests |
+| *Picoides tridactylus* | Three-toed woodpecker | Spruce forests |
+| *Loxia curvirostra* | Common crossbill | Conifer forests |
+| *Nucifraga caryocatactes* | Spotted nutcracker | Mountain conifer forests |
+| *Regulus ignicapilla* | Firecrest | Mixed mountain forests |
+| *Cinclus cinclus* | White-throated dipper | Alpine streams and torrents |
+| *Ficedula albicollis* | Collared flycatcher | Deciduous mountain forests |
+| *Saxicola rubetra* | Whinchat | Subalpine meadows |
+| *Emberiza cia* | Rock bunting | Rocky slopes with sparse vegetation |
+| *Gypaetus barbatus* | Bearded vulture | High alpine cliffs (reintroduced) |
 
 ## Pipeline
 
@@ -90,8 +113,9 @@ Edit `config/default.yaml` to change species, audio parameters, or training hype
 
 ```yaml
 species:
-  - Turdus merula
-  - Erithacus rubecula
+  - Turdus torquatus
+  - Cinclus cinclus
+  # ... 18 more
 
 download:
   max_per_species: 100
