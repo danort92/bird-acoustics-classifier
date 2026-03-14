@@ -5,11 +5,27 @@ data:
   processed_dir: data/processed
 
 species:
-  - Turdus merula
-  - Erithacus rubecula
-  - Parus major
-  - Fringilla coelebs
-  - Sylvia atricapilla
+  # Alpine zone — Italy / Austria / Switzerland (20 species)
+  - Turdus torquatus        # Ring ouzel              — rocky slopes, high-altitude forests
+  - Phoenicurus ochruros    # Black redstart          — rocky terrain, mountain villages
+  - Prunella collaris       # Alpine accentor         — high rocky areas above treeline
+  - Pyrrhocorax graculus    # Yellow-billed chough    — alpine cliffs and glaciers
+  - Pyrrhocorax pyrrhocorax # Red-billed chough       — alpine meadows and cliffs
+  - Tichodroma muraria      # Wallcreeper             — vertical rock faces
+  - Anthus spinoletta       # Water pipit             — alpine meadows and streams
+  - Montifringilla nivalis  # White-winged snowfinch  — above treeline, snowfields
+  - Lagopus muta            # Rock ptarmigan          — high alpine tundra
+  - Dryocopus martius       # Black woodpecker        — subalpine conifer forests
+  - Tetrao urogallus        # Western capercaillie    — old-growth conifer forests
+  - Picoides tridactylus    # Three-toed woodpecker   — spruce forests
+  - Loxia curvirostra       # Common crossbill        — conifer forests
+  - Nucifraga caryocatactes # Spotted nutcracker      — mountain conifer forests
+  - Regulus ignicapilla     # Firecrest               — mixed mountain forests
+  - Cinclus cinclus         # White-throated dipper   — alpine streams and torrents
+  - Ficedula albicollis     # Collared flycatcher     — deciduous mountain forests
+  - Saxicola rubetra        # Whinchat                — subalpine meadows
+  - Emberiza cia            # Rock bunting            — rocky slopes with sparse vegetation
+  - Gypaetus barbatus       # Bearded vulture         — high alpine cliffs (reintroduced)
 
 download:
   max_per_species: 100
