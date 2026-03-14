@@ -1,50 +1,50 @@
 # Bird Acoustics Classifier
 
-Classificatore di specie di uccelli da audio usando **EfficientNet fine-tuning su spettrogrammi mel**, con dati scaricati dall'**API Xeno-canto**.
+Automatic bird species recognition from audio recordings using **EfficientNet fine-tuning on mel spectrograms**, with data sourced from the **Xeno-canto API**.
 
-## Descrizione
+## Description
 
-Il progetto implementa una pipeline completa per il riconoscimento automatico di specie di uccelli a partire da registrazioni audio:
+The project implements a complete pipeline for automatic bird species identification from audio recordings:
 
-1. **Download dati** — Recupero di tracce audio `.mp3` da [Xeno-canto](https://xeno-canto.org/) tramite API
-2. **Pre-processing** — Conversione audio → spettrogrammi mel (immagini 2D)
-3. **Training** — Fine-tuning di EfficientNet su spettrogrammi mel
-4. **Valutazione** — Metriche e report con MLflow
-5. **Demo** — Interfaccia web interattiva con Gradio
+1. **Data download** — Fetch `.mp3` audio recordings from [Xeno-canto](https://xeno-canto.org/) via API
+2. **Pre-processing** — Convert audio → mel spectrograms (2D images)
+3. **Training** — Fine-tune EfficientNet on mel spectrograms
+4. **Evaluation** — Metrics and reports tracked with MLflow
+5. **Demo** — Interactive web interface with Gradio
 
-## Struttura del progetto
+## Project structure
 
 ```
 bird-acoustics-classifier/
 ├── data/
-│   ├── raw/            # Audio .mp3 scaricati da Xeno-canto (per specie)
-│   └── processed/      # Spettrogrammi mel pre-processati
-├── notebooks/          # Jupyter notebook step-by-step
-├── src/                # Moduli Python riutilizzabili
-├── app/                # Applicazione Gradio
-├── models/             # Checkpoint e modelli salvati
-├── reports/            # Grafici, metriche, report MLflow
+│   ├── raw/            # .mp3 audio files downloaded from Xeno-canto (per species)
+│   └── processed/      # Pre-processed mel spectrograms
+├── notebooks/          # Step-by-step Jupyter notebooks
+├── src/                # Reusable Python modules
+├── app/                # Gradio application
+├── models/             # Saved checkpoints and models
+├── reports/            # Plots, metrics, MLflow reports
 ├── requirements.txt
 └── README.md
 ```
 
-## Installazione
+## Installation
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## Configurazione
+## Configuration
 
-Imposta la tua API key di Xeno-canto:
+Set your Xeno-canto API key:
 
 ```bash
 export XENO_CANTO_API_KEY="your_api_key_here"
 ```
 
-> Se non impostata, il modulo chiederà la chiave in modo interattivo.
+> If not set, the module will prompt for the key interactively.
 
-## Utilizzo rapido
+## Quick start
 
 ```python
 from src.download import XenoCantoDownloader
@@ -54,16 +54,16 @@ species = ["Turdus merula", "Erithacus rubecula", "Parus major"]
 downloader.download_species(species, max_per_species=50)
 ```
 
-## Notebook
+## Notebooks
 
-| Notebook | Descrizione |
+| Notebook | Description |
 |---|---|
-| `01_download.ipynb` | Download audio da Xeno-canto API |
+| `01_download.ipynb` | Download audio recordings from the Xeno-canto API |
 
-## Tecnologie
+## Technologies
 
-- **PyTorch / TorchVision** — Training e fine-tuning EfficientNet
-- **Torchaudio / Librosa** — Elaborazione audio e spettrogrammi mel
-- **Gradio** — Interfaccia demo interattiva
-- **MLflow** — Tracking esperimenti e metriche
-- **Xeno-canto API** — Dataset audio di canti di uccelli
+- **PyTorch / TorchVision** — EfficientNet training and fine-tuning
+- **Torchaudio / Librosa** — Audio processing and mel spectrograms
+- **Gradio** — Interactive demo interface
+- **MLflow** — Experiment tracking and metrics
+- **Xeno-canto API** — Bird song audio dataset
