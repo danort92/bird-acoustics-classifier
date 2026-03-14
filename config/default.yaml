@@ -29,7 +29,7 @@ species:
 
 download:
   max_per_species: 100
-  quality: "A"          # A–E; "A" = best quality only
+  quality: "all"        # "all" = any grade; "A" = best quality only
   countries: []         # e.g. ["Italy", "Austria"] — empty = worldwide
 
 audio:
