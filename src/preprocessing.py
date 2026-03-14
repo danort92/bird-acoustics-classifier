@@ -97,13 +97,26 @@ class SpectrogramConverter:
         self,
         input_dir: str = "data/raw",
         overwrite: bool = False,
+        species: list[str] | None = None,
     ) -> dict[str, int]:
-        """Process every .mp3 file found under *input_dir*.
+        """Process .mp3 files found under *input_dir*.
 
-        Returns a dict mapping species name → number of clips produced.
+        Args:
+            species: Optional list of species names (e.g. ``["Turdus merula"]``).
+                     When provided, only matching sub-directories are processed.
+                     Spaces are normalised to underscores for directory matching.
+                     When *None*, all sub-directories are processed.
+
+        Returns a dict mapping species directory name → number of clips produced.
         """
         input_path = Path(input_dir)
-        species_dirs = sorted([d for d in input_path.iterdir() if d.is_dir()])
+        allowed = (
+            {s.replace(" ", "_") for s in species} if species is not None else None
+        )
+        species_dirs = sorted(
+            d for d in input_path.iterdir()
+            if d.is_dir() and (allowed is None or d.name in allowed)
+        )
 
         if not species_dirs:
             logger.warning("No species sub-directories found in %s", input_path)
