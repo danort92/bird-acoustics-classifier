@@ -38,6 +38,15 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
 
 
+def _safe_num_workers(n: int) -> int:
+    """Return 0 inside Jupyter/Colab to avoid multiprocessing teardown errors."""
+    try:
+        get_ipython  # type: ignore[name-defined]
+        return 0
+    except NameError:
+        return n
+
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
@@ -289,10 +298,12 @@ class BirdTrainer:
             ds = BirdDataset(cfg.processed_dir, transform=tf, species=species)
             return Subset(ds, idx)
 
+        nw = _safe_num_workers(cfg.num_workers)
         kw = dict(
-            batch_size  = cfg.batch_size,
-            num_workers = cfg.num_workers,
-            pin_memory  = self.device.type == "cuda",
+            batch_size       = cfg.batch_size,
+            num_workers      = nw,
+            pin_memory       = self.device.type == "cuda",
+            persistent_workers = nw > 0,
         )
         return (
             DataLoader(_subset(train_idx, train_tf), shuffle=True,  **kw),
@@ -344,6 +355,10 @@ class BirdTrainer:
         mlflow.set_tracking_uri(cfg.tracking_uri)
         mlflow.set_experiment(cfg.experiment_name)
 
+        # Table header (printed once before the loop)
+        _HDR = f"{'Epoch':>8} │ {'Train Loss':>10} {'Train Acc':>9} │ {'Val Loss':>8} {'Val Acc':>7} │ {'LR':>9}"
+        _SEP = "─" * len(_HDR)
+
         with mlflow.start_run():
             mlflow.log_params({
                 "model":         cfg.model_name,
@@ -358,6 +373,10 @@ class BirdTrainer:
                 "device":        str(self.device),
                 "scheduler":     "cosine" if cfg.use_scheduler else "none",
             })
+
+            print(_SEP)
+            print(_HDR)
+            print(_SEP)
 
             for epoch in range(1, cfg.epochs + 1):
                 train_loss, train_acc = self._run_epoch(train_loader, model, criterion, optimizer)
@@ -386,17 +405,12 @@ class BirdTrainer:
                 history["val_acc"].append(val_acc)
                 history["lr"].append(lr)
 
-                logger.info(
-                    f"Epoch {epoch:3d}/{cfg.epochs} | "
-                    f"train loss={train_loss:.4f} acc={train_acc:.3f} | "
-                    f"val loss={val_loss:.4f} acc={val_acc:.3f} | "
-                    f"lr={lr:.2e}"
-                )
-
                 # Checkpoint
+                checkpoint_marker = "  "
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
                     patience_cnt  = 0
+                    checkpoint_marker = " *"
                     torch.save(
                         {
                             "epoch":                epoch,
@@ -411,18 +425,30 @@ class BirdTrainer:
                         },
                         best_path,
                     )
-                    logger.info(f"  ✓ Best val_loss={best_val_loss:.4f} — saved to {best_path}")
                 else:
                     patience_cnt += 1
-                    if patience_cnt >= cfg.patience:
-                        logger.info(f"Early stopping triggered at epoch {epoch}")
-                        break
+
+                print(
+                    f"{epoch:>4}/{cfg.epochs:<4} │ "
+                    f"{train_loss:>10.4f} {train_acc:>9.3f} │ "
+                    f"{val_loss:>8.4f} {val_acc:>7.3f} │ "
+                    f"{lr:>9.2e}"
+                    f"{checkpoint_marker}"
+                )
+
+                if patience_cnt >= cfg.patience:
+                    print(_SEP)
+                    print(f"  Early stopping at epoch {epoch} (patience={cfg.patience})")
+                    break
+
+            print(_SEP)
 
             # Final test evaluation
             test_loss, test_acc = self._run_epoch(test_loader, model, criterion)
             mlflow.log_metrics({"test_loss": test_loss, "test_acc": test_acc})
             mlflow.log_artifact(str(best_path))
-            logger.info(f"Test  | loss={test_loss:.4f}  acc={test_acc:.3f}")
+            print(f"  Test  │ loss={test_loss:.4f}  acc={test_acc:.3f}")
+            print(_SEP)
             history["test_loss"] = test_loss
             history["test_acc"]  = test_acc
 
