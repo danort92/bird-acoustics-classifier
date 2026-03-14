@@ -53,7 +53,7 @@ training:
   test_split: 0.15
   seed: 42
   num_workers: 4
-  output_dir: outputs
+  output_dir: models
 
 mlflow:
   experiment_name: bird-acoustics-classifier
