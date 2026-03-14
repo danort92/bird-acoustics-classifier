@@ -137,7 +137,7 @@ class XenoCantoDownloader:
 
         while len(recordings) < max_results:
             params: Dict[str, Any] = {
-                "query": f"{species} q:{quality}",
+                "query": f'sp:"{species}" q:{quality}',
                 "page": page,
             }
             # API v3 requires the key as a query parameter
