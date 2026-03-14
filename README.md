@@ -48,7 +48,7 @@ bird-acoustics-classifier/
 
 | Notebook | Description | Colab |
 |----------|-------------|-------|
-| `pipeline.ipynb` | Full pipeline: download → preprocessing → dataset summary | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/danort92/bird-acoustics-classifier/blob/main/notebooks/pipeline.ipynb) |
+| `pipeline.ipynb` | Full pipeline: download → preprocessing → dataset summary | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/danort92/bird-acoustics-classifier/blob/claude/setup-project-structure-lVRTH/notebooks/pipeline.ipynb) |
 
 ### Running locally (recommended)
 
