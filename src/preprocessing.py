@@ -111,7 +111,7 @@ class SpectrogramConverter:
         """
         input_path = Path(input_dir)
         allowed = (
-            {s.replace(" ", "_") for s in species} if species is not None else None
+            {s.replace(" ", "_").lower() for s in species} if species is not None else None
         )
         species_dirs = sorted(
             d for d in input_path.iterdir()
