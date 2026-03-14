@@ -1,0 +1,118 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.whl
+MANIFEST
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# Distribution / packaging
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+htmlcov/
+
+# ML / Data Science
+*.h5
+*.hdf5
+*.pkl
+*.pickle
+*.joblib
+*.onnx
+*.pt
+*.pth
+*.safetensors
+mlruns/
+mlartifacts/
+wandb/
+.neptune/
+
+# Data directories (raw audio and processed files)
+data/raw/**/*.mp3
+data/raw/**/*.wav
+data/raw/**/*.ogg
+data/raw/**/*.flac
+data/processed/**/*.png
+data/processed/**/*.jpg
+data/processed/**/*.npy
+data/processed/**/*.npz
+
+# Keep directory structure
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+# Models (large binary files)
+models/*.pt
+models/*.pth
+models/*.onnx
+models/*.h5
+models/*.pkl
+!models/.gitkeep
+
+# Reports (generated files)
+reports/*.png
+reports/*.pdf
+reports/*.html
+!reports/.gitkeep
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Environment variables / secrets
+.env
+.env.local
+.env.*.local
+*.env
+
+# Google Colab
+.config/
+drive/
+
+# Logs
+*.log
+logs/
