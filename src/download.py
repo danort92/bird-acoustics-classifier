@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import List, Optional, Dict, Any
 
 import requests
+from tqdm.auto import tqdm
 
 logging.basicConfig(
     level=logging.INFO,
@@ -246,23 +247,24 @@ class XenoCantoDownloader:
         """
         results: Dict[str, List[Path]] = {}
 
-        for species in species_list:
-            logger.info("=== Processing: %s ===", species)
+        species_bar = tqdm(species_list, desc="Species", unit="sp")
+        for species in species_bar:
+            species_bar.set_postfix_str(species)
             safe_name = _sanitise_name(species)
             species_dir = self.output_dir / safe_name
 
             recordings = self.search_species(
                 species, quality=quality, max_results=max_per_species
             )
-            logger.info(
-                "Found %d recording(s) for '%s'.", len(recordings), species
-            )
+            logger.info("Found %d recording(s) for '%s'.", len(recordings), species)
 
             downloaded: List[Path] = []
-            for rec in recordings:
+            rec_bar = tqdm(recordings, desc=f"  {species.split()[0]}", unit="file", leave=False)
+            for rec in rec_bar:
                 path = self.download_recording(rec, species_dir)
                 if path:
                     downloaded.append(path)
+                    rec_bar.set_postfix_str(path.name)
                 time.sleep(self.request_delay)
 
             results[species] = downloaded
