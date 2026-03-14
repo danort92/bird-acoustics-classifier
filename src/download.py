@@ -141,13 +141,10 @@ class XenoCantoDownloader:
         recordings: List[Dict[str, Any]] = []
         page = 1
 
-        # Build quality filter: include all grades >= min_quality (A > B > C > D > E)
-        _grades = ["A", "B", "C", "D", "E"]
-        if quality in _grades:
-            accepted = _grades[: _grades.index(quality) + 1]
-        else:
-            accepted = ["A"]
-        quality_filter = " ".join(f"q:{g}" for g in accepted)
+        # Quality filter: "A" = only grade A; anything else = no filter (accept all grades).
+        # Multiple q: tags are treated as AND by the API (not OR), so we cannot combine them.
+        # Omitting the filter returns all grades (A–E), giving the most training data.
+        quality_filter = f" q:{quality}" if quality == "A" else ""
 
         country_filter = ""
         if countries:
@@ -155,7 +152,7 @@ class XenoCantoDownloader:
 
         while len(recordings) < max_results:
             params: Dict[str, Any] = {
-                "query": f'sp:"{species}" {quality_filter}{country_filter}',
+                "query": f'sp:"{species}"{quality_filter}{country_filter}',
                 "page": page,
             }
             # API v3 requires the key as a query parameter
