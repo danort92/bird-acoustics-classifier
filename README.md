@@ -36,26 +36,20 @@ bird-acoustics-classifier/
 | `01_download.ipynb` | Download `.mp3` recordings from Xeno-canto API | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/danort92/bird-acoustics-classifier/blob/claude/setup-project-structure-lVRTH/notebooks/01_download.ipynb) |
 | `02_preprocessing.ipynb` | Convert audio → mel spectrogram PNG tiles | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/danort92/bird-acoustics-classifier/blob/claude/setup-project-structure-lVRTH/notebooks/02_preprocessing.ipynb) |
 
-### Google Colab — data persistence across sessions
+### Running locally (recommended)
 
-Both notebooks store `data/` on **Google Drive** so files survive when the Colab VM is recycled:
-
-```
-MyDrive/
-└── bird-acoustics-classifier/
-    └── data/
-        ├── raw/          ← filled by notebook 01
-        └── processed/    ← filled by notebook 02
+```bash
+git clone https://github.com/danort92/bird-acoustics-classifier.git
+cd bird-acoustics-classifier
+pip install -r requirements.txt
+jupyter notebook
 ```
 
-When you open **notebook 02 in a new session**, the first cell mounts Drive and sets:
+Open the notebooks in order from the repo root. Data is saved in `data/raw/` and `data/processed/` and persists between sessions automatically.
 
-```python
-RAW_DIR       = '/content/drive/MyDrive/bird-acoustics-classifier/data/raw'
-PROCESSED_DIR = '/content/drive/MyDrive/bird-acoustics-classifier/data/processed'
-```
+### Google Colab
 
-so it automatically finds the recordings downloaded by notebook 01 — **no need to re-download**.
+The Colab badge opens the notebook directly. Each notebook has a short setup cell (clone repo + pip install). **Data is not persisted between sessions** — if you close the session you need to re-run notebook 01 to download the files again. For large datasets or repeated work, running locally is more practical.
 
 ## Installation (local)
 
