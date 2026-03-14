@@ -26,7 +26,6 @@ from typing import List, Optional, Tuple
 import librosa
 import librosa.display
 import matplotlib
-matplotlib.use("Agg")          # headless backend — no GUI required
 import matplotlib.pyplot as plt
 import numpy as np
 from tqdm.auto import tqdm
