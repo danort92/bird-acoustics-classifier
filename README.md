@@ -56,9 +56,9 @@ downloader.download_species(species, max_per_species=50)
 
 ## Notebooks
 
-| Notebook | Description |
-|---|---|
-| `01_download.ipynb` | Download audio recordings from the Xeno-canto API |
+| Notebook | Description | Colab |
+|---|---|---|
+| `01_download.ipynb` | Download audio recordings from the Xeno-canto API | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/danort92/bird-acoustics-classifier/blob/main/notebooks/01_download.ipynb) |
 
 ## Technologies
 
