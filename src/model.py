@@ -671,7 +671,7 @@ class BirdTrainer:
         -------
         y_true, y_pred : np.ndarray of shape (N,)
         """
-        _, _, test_loader, num_classes = self.build_dataloaders(species)
+        _, _, test_loader, num_classes, _ = self.build_dataloaders(species)
         ckpt  = torch.load(checkpoint_path, map_location=self.device)
         model = build_model(num_classes, pretrained=False).to(self.device)
         model.load_state_dict(ckpt["model_state_dict"])
