@@ -58,8 +58,6 @@ htmlcov/
 *.pickle
 *.joblib
 *.onnx
-*.pt
-*.pth
 *.safetensors
 mlruns/
 mlartifacts/
@@ -80,12 +78,7 @@ data/processed/**/*.npz
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 
-# Models (large binary files)
-models/*.pt
-models/*.pth
-models/*.onnx
-models/*.h5
-models/*.pkl
+# Models — tracked via Git LFS (see .gitattributes)
 !models/.gitkeep
 
 # Reports (generated files)
