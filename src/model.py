@@ -598,7 +598,62 @@ class BirdTrainer:
             history["test_loss"] = test_loss
             history["test_acc"]  = test_acc
 
+            # Patch the best checkpoint to include the full history so the
+            # file is self-contained and no sidecar JSON is needed.
+            ckpt_data = torch.load(best_path, map_location="cpu", weights_only=False)
+            ckpt_data["history"] = history
+            torch.save(ckpt_data, best_path)
+
         return best_path, history
+
+    def _restore_from_checkpoint(self, checkpoint_path: Path) -> Dict:
+        """Populate ``self.classes`` and return history from a saved checkpoint.
+
+        Used by :meth:`load_or_train` to skip training when a checkpoint
+        already exists.  The checkpoint must have been written by
+        :meth:`train` (which embeds history at the end of the run).
+        """
+        ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+        self.classes = ckpt["classes"]
+        return ckpt.get("history", {
+            "train_loss": [], "train_acc": [],
+            "val_loss":   [], "val_acc":   [],
+            "lr":         [],
+            "test_loss":  0.0, "test_acc": 0.0,
+        })
+
+    @classmethod
+    def load_or_train(
+        cls,
+        cfg: "TrainingConfig",
+        species: Optional[List[str]] = None,
+        force: bool = False,
+    ) -> Tuple["BirdTrainer", Path, Dict]:
+        """Load an existing checkpoint or run training if none is found.
+
+        Parameters
+        ----------
+        cfg :
+            Training configuration.
+        species :
+            Optional species filter forwarded to :meth:`train`.
+        force :
+            When *True*, always retrain even if a checkpoint exists.
+
+        Returns
+        -------
+        trainer  : BirdTrainer (``classes`` already populated)
+        path     : Path to the best checkpoint
+        history  : metrics dict (same structure as :meth:`train`)
+        """
+        ckpt_path = Path(cfg.output_dir) / cfg.checkpoint_name
+        trainer   = cls(cfg)
+        if not force and ckpt_path.exists():
+            history = trainer._restore_from_checkpoint(ckpt_path)
+            logger.info("Checkpoint loaded (skipping training): %s", ckpt_path)
+            return trainer, ckpt_path, history
+        path, history = trainer.train(species=species)
+        return trainer, path, history
 
     def evaluate(
         self,
