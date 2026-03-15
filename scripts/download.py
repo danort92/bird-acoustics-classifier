@@ -5,6 +5,7 @@ Usage:
     python scripts/download.py --config config/default.yaml
     python scripts/download.py --species "Turdus merula" "Parus major" --max 50
     python scripts/download.py --countries Italy Austria --quality A
+    python scripts/download.py --quality-mix A:60 B:30 C:10
 """
 
 import argparse
@@ -42,6 +43,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--countries", nargs="+", help="Filter by countries, e.g. Italy Austria"
     )
+    parser.add_argument(
+        "--quality-mix", nargs="+", metavar="GRADE:WEIGHT",
+        help="Blend of quality grades, e.g. A:60 B:30 C:10 (overrides --quality)",
+    )
     return parser.parse_args()
 
 
@@ -57,12 +62,23 @@ def main() -> None:
     output_dir = args.output_dir or cfg["data"]["raw_dir"]
     countries  = args.countries  or cfg["download"].get("countries") or None
 
+    # quality_mix: CLI flag takes precedence over YAML, both override --quality
+    quality_mix = None
+    if args.quality_mix:
+        quality_mix = {
+            pair.split(":")[0]: int(pair.split(":")[1])
+            for pair in args.quality_mix
+        }
+    elif cfg["download"].get("quality_mix"):
+        quality_mix = cfg["download"]["quality_mix"]
+
     downloader = XenoCantoDownloader(output_dir=output_dir)
     results = downloader.download_species(
         species_list=species,
         max_per_species=max_per,
         quality=quality,
         countries=countries if countries else None,
+        quality_mix=quality_mix,
     )
 
     total = sum(len(v) for v in results.values())

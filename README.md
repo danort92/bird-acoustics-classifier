@@ -166,7 +166,16 @@ export XENO_CANTO_API_KEY="your_api_key_here"
 from src.download import XenoCantoDownloader
 
 dl = XenoCantoDownloader(output_dir="data/raw")
-dl.download_species(["Turdus torquatus", "Cinclus cinclus"], max_per_species=30)
+
+# Grade-A only (cleanest recordings)
+dl.download_species(["Turdus torquatus", "Cinclus cinclus"], max_per_species=50)
+
+# Mixed quality — improves robustness on real-world recordings
+dl.download_species(
+    ["Turdus torquatus", "Cinclus cinclus"],
+    max_per_species=100,
+    quality_mix={"A": 60, "B": 30, "C": 10},
+)
 ```
 
 Or via CLI:
@@ -246,7 +255,7 @@ python app/app.py --port 8080                         # custom port
 python app/app.py --share                             # public Gradio link
 ```
 
-The app accepts `.mp3` or `.wav` files, slices them into 5-second clips, runs the model on each clip, and returns the top-k species with confidence scores, plus the mel spectrogram of the first clip.
+The app accepts `.mp3` or `.wav` files (or a `.zip` archive), slices them into 5-second clips, runs the model on each clip, and returns the best species prediction with confidence score, plus the mel spectrogram of the first clip.
 
 ---
 
@@ -302,7 +311,11 @@ species:
 
 download:
   max_per_species: 100
-  quality: "all"          # "all" = any grade; "A" = best quality only
+  quality: "A"            # grade filter when quality_mix is not set (A–E)
+  # quality_mix:          # blend of grades — weights are relative, not absolute counts
+  #   A: 60               # ~60 % grade-A
+  #   B: 30               # ~30 % grade-B
+  #   C: 10               # ~10 % grade-C
   countries: []           # e.g. ["Italy", "Austria"] — empty = worldwide
 
 audio:
@@ -363,4 +376,5 @@ mlflow ui
 | **MLflow** | Experiment tracking and checkpoint logging |
 | **Xeno-canto API v3** | Bird song audio dataset |
 | **scikit-learn** | Stratified splits, evaluation metrics |
+| **soundfile** | Audio file I/O backend for Librosa (WAV/FLAC/OGG) |
 | **Pillow / NumPy** | Image handling and array operations |

@@ -29,7 +29,11 @@ species:
 
 download:
   max_per_species: 100
-  quality: "all"        # "all" = any grade; "A" = best quality only
+  quality: "A"          # grade filter when quality_mix is not set (A–E)
+  # quality_mix:        # uncomment to blend quality grades (weights, not absolute counts)
+  #   A: 60             #   ~60 % grade-A
+  #   B: 30             #   ~30 % grade-B
+  #   C: 10             #   ~10 % grade-C
   countries: []         # e.g. ["Italy", "Austria"] — empty = worldwide
 
 audio:
