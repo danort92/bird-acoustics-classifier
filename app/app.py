@@ -184,7 +184,7 @@ def _expand_files(files: list, tmpdir: Path) -> list[str]:
 def _conf_badge(conf: float) -> str:
     if conf >= 0.80:
         return "🟢"
-    if conf >= 0.50:
+    if conf >= 0.40:
         return "🟡"
     return "🔴"
 
