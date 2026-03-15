@@ -105,7 +105,7 @@ For large expansions, consider reducing `max_per_species` (e.g. 50) or increasin
 
 ## Results (reference run)
 
-> Configuration: `max_per_species: 100`, 30 epochs, seed 42, EfficientNet-B0 fine-tuned on grade-A Xeno-canto recordings.
+> Configuration: `max_per_species: 20`, 30 epochs, seed 42, EfficientNet-B0 fine-tuned on grade-A Xeno-canto recordings.
 > Results will vary when retraining with a different dataset or additional species.
 
 **Test accuracy: 96.6%** — macro F1: 0.956 — weighted F1: 0.965
