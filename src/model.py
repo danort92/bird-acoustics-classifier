@@ -404,13 +404,23 @@ class BirdTrainer:
             persistent_workers = nw > 0,
         )
 
-        # WeightedRandomSampler: over-sample rare species during training
+        # WeightedRandomSampler: over-sample rare species during training.
+        # Build a flat dataset (pre-filtered to train_idx) so the sampler
+        # generates indices directly into len(train_idx) — no Subset mapping
+        # layer in between, which avoids an IndexError on some PyTorch builds.
         if cfg.use_weighted_sampler:
+            ds_train = BirdDataset.__new__(BirdDataset)
+            ds_train.processed_dir = ref_ds.processed_dir
+            ds_train.classes       = ref_ds.classes
+            ds_train.class_to_idx  = ref_ds.class_to_idx
+            ds_train.samples       = [ref_ds.samples[i] for i in train_idx]
+            ds_train.transform     = train_tf
+
             class_counts  = np.bincount(train_labels, minlength=num_classes).astype(float)
             class_weights = 1.0 / np.maximum(class_counts, 1.0)
             sample_w = torch.tensor([class_weights[l] for l in train_labels], dtype=torch.float)
             sampler  = WeightedRandomSampler(sample_w, num_samples=len(sample_w), replacement=True)
-            train_loader = DataLoader(_subset(train_idx, train_tf), sampler=sampler, **kw)
+            train_loader = DataLoader(ds_train, sampler=sampler, **kw)
         else:
             train_loader = DataLoader(_subset(train_idx, train_tf), shuffle=True, **kw)
 
