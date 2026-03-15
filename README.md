@@ -103,6 +103,43 @@ For large expansions, consider reducing `max_per_species` (e.g. 50) or increasin
 
 ---
 
+## Results (reference run)
+
+> Configuration: `max_per_species: 100`, 30 epochs, seed 42, EfficientNet-B0 fine-tuned on grade-A Xeno-canto recordings.
+> Results will vary when retraining with a different dataset or additional species.
+
+**Test accuracy: 96.6%** — macro F1: 0.956 — weighted F1: 0.965
+
+| Species | Precision | Recall | F1 | Support |
+|---|---|---|---|---|
+| *Anthus spinoletta* | 1.000 | 0.667 | 0.800 | 6 |
+| *Cinclus cinclus* | 1.000 | 0.932 | 0.965 | 59 |
+| *Dryocopus martius* | 1.000 | 0.977 | 0.989 | 44 |
+| *Emberiza cia* | 1.000 | 1.000 | 1.000 | 21 |
+| *Ficedula albicollis* | 0.981 | 1.000 | 0.991 | 53 |
+| *Gypaetus barbatus* | 1.000 | 1.000 | 1.000 | 11 |
+| *Lagopus muta* | 0.939 | 1.000 | 0.969 | 31 |
+| *Loxia curvirostra* | 0.871 | 0.964 | 0.915 | 28 |
+| *Montifringilla nivalis* | 1.000 | 0.950 | 0.974 | 20 |
+| *Nucifraga caryocatactes* | 1.000 | 0.909 | 0.952 | 22 |
+| *Phoenicurus ochruros* | 0.982 | 0.965 | 0.973 | 226 |
+| *Picoides tridactylus* | 1.000 | 1.000 | 1.000 | 42 |
+| *Prunella collaris* | 0.928 | 0.928 | 0.928 | 69 |
+| *Pyrrhocorax graculus* | 0.942 | 0.951 | 0.946 | 102 |
+| *Pyrrhocorax pyrrhocorax* | 0.899 | 0.969 | 0.932 | 64 |
+| *Regulus ignicapilla* | 0.957 | 0.957 | 0.957 | 23 |
+| *Saxicola rubetra* | 0.973 | 0.935 | 0.954 | 77 |
+| *Tetrao urogallus* | 0.992 | 0.992 | 0.992 | 122 |
+| *Tichodroma muraria* | 0.923 | 0.923 | 0.923 | 13 |
+| *Turdus torquatus* | 0.958 | 0.976 | 0.967 | 254 |
+
+**Notable confusions:** *Anthus spinoletta* (only 6 test samples — low-support species are inherently noisier); *Nucifraga caryocatactes* occasionally confused with *Pyrrhocorax* species (similar alpine habitat); the two *Pyrrhocorax* species (graculus / pyrrhocorax) show minor cross-confusion as expected given acoustic similarity.
+
+![Confusion matrix](outputs/confusion_matrix.png)
+![Training curves](outputs/training_curves.png)
+
+---
+
 ## Pipeline
 
 | Step | Module | Notebook | CLI script |
@@ -267,6 +304,8 @@ python app/app.py --share                             # public Gradio link
 
 The app accepts `.mp3` or `.wav` files (or a `.zip` archive), slices them into 5-second clips, runs the model on each clip, and returns the best species prediction with confidence score, plus the mel spectrogram of the first clip.
 
+The **Settings** panel in the UI includes a **Model checkpoint** dropdown that automatically discovers all `.pt` files in the `models/` directory — no restart needed to switch between checkpoints.
+
 ---
 
 ## Training from scratch
@@ -279,9 +318,9 @@ The sequence is:
 API key → download .mp3 → generate spectrograms → train → models/best_model.pt → Gradio app
 ```
 
-`scripts/train.py` calls `BirdTrainer.train()`, which automatically saves the best checkpoint (lowest validation loss) to `models/best_model.pt` at the end of training. The Gradio app reads that file by default.
+`scripts/train.py` calls `BirdTrainer.train()`, which automatically saves the best checkpoint (lowest validation loss) to `models/best_model.pt` at the end of training. The Gradio app reads that file by default, and it will appear automatically in the UI checkpoint dropdown.
 
-If a pre-trained `best_model.pt` is already present in the repo (tracked via Git LFS), it is used immediately by `python app/app.py` without retraining. To retrain from scratch anyway:
+To retrain from scratch:
 
 ```bash
 python scripts/train.py          # overwrites models/best_model.pt
