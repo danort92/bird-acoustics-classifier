@@ -35,7 +35,6 @@ from src.preprocessing import AudioConfig, SpectrogramConverter
 
 DEFAULT_CHECKPOINT = "models/best_model.pt"
 DEFAULT_CONFIG     = "config/default.yaml"
-DEFAULT_TOP_K      = 5
 
 # ---------------------------------------------------------------------------
 # Custom CSS
@@ -132,8 +131,7 @@ def _infer_file(
     audio_cfg: AudioConfig,
     val_tf,
     device: torch.device,
-    top_k: int,
-) -> tuple[Image.Image | None, dict[str, float], int]:
+) -> tuple[Image.Image | None, str, float]:
     """Run inference on a single audio file.
 
     Returns (first_spectrogram, {species: confidence}, n_clips).
@@ -144,7 +142,7 @@ def _infer_file(
         png_paths   = converter.convert_file(Path(audio_path), tmpdir_path, overwrite=True)
 
         if not png_paths:
-            return None, {}, 0
+            return None, "", 0.0
 
         first_spec = Image.open(png_paths[0]).convert("RGB")
 
@@ -156,12 +154,9 @@ def _infer_file(
                 probs  = torch.softmax(model(tensor), dim=1)[0].cpu().numpy()
                 all_probs.append(probs)
 
-    avg_probs    = np.mean(all_probs, axis=0)
-    top_k_capped = min(top_k, len(classes))
-    top_idx      = np.argsort(avg_probs)[::-1][:top_k_capped]
-    predictions  = {_fmt_class(classes[i]): float(avg_probs[i]) for i in top_idx}
-
-    return first_spec, predictions, len(png_paths)
+    avg_probs = np.mean(all_probs, axis=0)
+    top_idx   = int(np.argmax(avg_probs))
+    return first_spec, _fmt_class(classes[top_idx]), float(avg_probs[top_idx])
 
 
 # ---------------------------------------------------------------------------
@@ -171,7 +166,6 @@ def _infer_file(
 def classify_files(
     files,
     checkpoint: str,
-    top_k: int,
 ) -> tuple[list, pd.DataFrame, str]:
     """Process one or more audio files and return aggregated results.
 
@@ -181,7 +175,7 @@ def classify_files(
     df      : summary DataFrame for gr.Dataframe
     status  : status string
     """
-    empty_df = pd.DataFrame(columns=["File", "Top species", "Confidence", "Clips"])
+    empty_df = pd.DataFrame(columns=["File", "Species", "Confidence"])
 
     if not files:
         return [], empty_df, "Upload one or more .mp3 / .wav files (or a .zip), then click Classify."
@@ -215,25 +209,20 @@ def classify_files(
 
         for path in expanded:
             fname = Path(path).name
-            spec, preds, n_clips = _infer_file(
-                str(path), model, classes, audio_cfg, val_tf, device, top_k
+            spec, top_name, top_conf = _infer_file(
+                str(path), model, classes, audio_cfg, val_tf, device
             )
 
-            if n_clips == 0:
-                rows.append({
-                    "File": fname, "Top species": "—",
-                    "Confidence": "—", "Clips": 0,
-                })
+            if not top_name:
+                rows.append({"File": fname, "Species": "—", "Confidence": "—"})
                 continue
 
-            top_name, top_conf = next(iter(preds.items()))
             caption = f"{fname}\n{top_name} ({top_conf:.1%})"
             gallery.append((spec, caption))
             rows.append({
-                "File":        fname,
-                "Top species": top_name,
-                "Confidence":  f"{top_conf:.1%}",
-                "Clips":       n_clips,
+                "File":       fname,
+                "Species":    top_name,
+                "Confidence": f"{top_conf:.1%}",
             })
 
         df = pd.DataFrame(rows)
@@ -303,10 +292,6 @@ def build_ui(checkpoint: str = DEFAULT_CHECKPOINT) -> gr.Blocks:
                         value=checkpoint,
                         placeholder="models/best_model.pt",
                     )
-                    top_k_slider = gr.Slider(
-                        minimum=1, maximum=10, step=1,
-                        value=DEFAULT_TOP_K, label="Top-k species",
-                    )
                 run_btn = gr.Button("🔍  Classify", variant="primary", elem_id="run-btn")
                 status_output = gr.Textbox(
                     label="Status", interactive=False, lines=2, max_lines=3,
@@ -317,7 +302,7 @@ def build_ui(checkpoint: str = DEFAULT_CHECKPOINT) -> gr.Blocks:
                 with gr.Tabs():
                     with gr.Tab("📊 Summary"):
                         table_output = gr.Dataframe(
-                            headers=["File", "Top species", "Confidence", "Clips"],
+                            headers=["File", "Species", "Confidence"],
                             label=None,
                             interactive=False,
                             wrap=True,
@@ -340,7 +325,7 @@ def build_ui(checkpoint: str = DEFAULT_CHECKPOINT) -> gr.Blocks:
 
         run_btn.click(
             fn=classify_files,
-            inputs=[file_input, checkpoint_input, top_k_slider],
+            inputs=[file_input, checkpoint_input],
             outputs=[gallery_output, table_output, status_output],
         )
 
