@@ -355,13 +355,6 @@ def classify_files(files, checkpoint: str, progress=gr.Progress(track_tqdm=True)
             except Exception as exc:
                 errors.append(str(exc))
                 rows.append({"": "🔴", "File": fname, "Species": "Error", "Confidence": "—"})
-                df = pd.DataFrame(rows)
-                yield (
-                    gallery, df,
-                    f"⚠️  Error on {fname}: {exc}",
-                    gr.Dropdown(choices=list(state.keys()), value=None, interactive=True, label="Select a file to inspect"),
-                    state, None, _empty, "",
-                )
                 continue
 
             badge = _conf_badge(top_probs[0])
@@ -377,18 +370,6 @@ def classify_files(files, checkpoint: str, progress=gr.Progress(track_tqdm=True)
                 "top_names":  top_names,
                 "top_probs":  top_probs,
             }
-
-            df      = pd.DataFrame(rows)
-            choices = list(state.keys())
-            bar_fig = _make_bar_fig(top_names, top_probs)
-            card    = _build_species_card(top_names[0], top_probs[0])
-
-            yield (
-                gallery, df,
-                f"⏳  Processing {i + 1}/{len(expanded)} — {fname}",
-                gr.Dropdown(choices=choices, value=fname, interactive=True, label="Select a file to inspect"),
-                state, str(dst), bar_fig, card,
-            )
 
     ok_count = len(expanded) - len(errors)
     status   = (
