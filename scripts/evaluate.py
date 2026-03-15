@@ -5,7 +5,8 @@ a full classification report. Optionally saves a confusion-matrix PNG.
 
 Usage:
     python scripts/evaluate.py --checkpoint models/best_model.pt
-    python scripts/evaluate.py --checkpoint models/best_model.pt --save-cm reports/cm.png
+    python scripts/evaluate.py --checkpoint models/best_model.pt --save-cm          # saves to reports/confusion_matrix.png
+    python scripts/evaluate.py --checkpoint models/best_model.pt --save-cm custom/path.png
     python scripts/evaluate.py --checkpoint models/best_model.pt --species "Turdus torquatus" "Cinclus cinclus"
 """
 
@@ -30,7 +31,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--checkpoint", required=True,                 help="Path to model checkpoint (.pt)")
     parser.add_argument("--data-dir",                                  help="Override processed data directory")
     parser.add_argument("--species",    nargs="+",                     help="Restrict to these species")
-    parser.add_argument("--save-cm",                                   help="Save confusion-matrix PNG to this path")
+    parser.add_argument("--save-cm", nargs="?", const="reports/confusion_matrix.png",
+                        help="Save confusion-matrix PNG (default: reports/confusion_matrix.png)")
     return parser.parse_args()
 
 

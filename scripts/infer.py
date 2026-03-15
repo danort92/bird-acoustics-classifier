@@ -7,9 +7,12 @@ the aggregated top-k species predictions.
 Usage:
     python scripts/infer.py --input audio.mp3 --checkpoint models/best_model.pt
     python scripts/infer.py --input audio.mp3 --checkpoint models/best_model.pt --top-k 5
+    python scripts/infer.py --input audio.mp3 --checkpoint models/best_model.pt --output          # saves to outputs/<stem>_predictions.json
+    python scripts/infer.py --input audio.mp3 --checkpoint models/best_model.pt --output custom/pred.json
 """
 
 import argparse
+import json
 import sys
 import tempfile
 from pathlib import Path
@@ -36,6 +39,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--checkpoint", required=True,                 help="Path to model checkpoint (.pt)")
     parser.add_argument("--top-k",      type=int, default=3,           help="Return top-k predictions per clip")
     parser.add_argument("--device",     default="cpu",                 help="Inference device (cpu / cuda)")
+    parser.add_argument("--output", nargs="?", const="",
+                        help="Save predictions as JSON (default path: outputs/<stem>_predictions.json)")
     return parser.parse_args()
 
 
@@ -107,6 +112,26 @@ def main() -> None:
         print(f"\nAggregated top-{args.top_k} predictions:")
         for rank, idx in enumerate(top_idx, 1):
             print(f"  {rank}. {classes[idx]:<35s} {avg_probs[idx]:.3f}")
+
+        if args.output is not None:
+            stem = Path(args.input).stem
+            out_path = Path(args.output) if args.output else Path("outputs") / f"{stem}_predictions.json"
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "file": str(mp3_path),
+                "n_clips": len(png_files),
+                "top_k": args.top_k,
+                "aggregated": [
+                    {"rank": rank, "species": classes[i], "probability": round(float(avg_probs[i]), 4)}
+                    for rank, i in enumerate(top_idx, 1)
+                ],
+                "per_clip": [
+                    {"clip": ci + 1, "predictions": [{"species": s, "probability": round(p, 4)} for s, p in preds]}
+                    for ci, preds in enumerate(clip_preds)
+                ],
+            }
+            out_path.write_text(json.dumps(payload, indent=2))
+            print(f"\nPredictions saved to: {out_path}")
 
 
 if __name__ == "__main__":
