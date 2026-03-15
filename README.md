@@ -267,6 +267,8 @@ python app/app.py --share                             # public Gradio link
 
 The app accepts `.mp3` or `.wav` files (or a `.zip` archive), slices them into 5-second clips, runs the model on each clip, and returns the best species prediction with confidence score, plus the mel spectrogram of the first clip.
 
+The **Settings** panel in the UI includes a **Model checkpoint** dropdown that automatically discovers all `.pt` files in the `models/` directory — no restart needed to switch between checkpoints.
+
 ---
 
 ## Training from scratch
@@ -279,9 +281,9 @@ The sequence is:
 API key → download .mp3 → generate spectrograms → train → models/best_model.pt → Gradio app
 ```
 
-`scripts/train.py` calls `BirdTrainer.train()`, which automatically saves the best checkpoint (lowest validation loss) to `models/best_model.pt` at the end of training. The Gradio app reads that file by default.
+`scripts/train.py` calls `BirdTrainer.train()`, which automatically saves the best checkpoint (lowest validation loss) to `models/best_model.pt` at the end of training. The Gradio app reads that file by default, and it will appear automatically in the UI checkpoint dropdown.
 
-If a pre-trained `best_model.pt` is already present in the repo (tracked via Git LFS), it is used immediately by `python app/app.py` without retraining. To retrain from scratch anyway:
+To retrain from scratch:
 
 ```bash
 python scripts/train.py          # overwrites models/best_model.pt
