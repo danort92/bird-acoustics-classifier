@@ -141,10 +141,8 @@ class XenoCantoDownloader:
         recordings: List[Dict[str, Any]] = []
         page = 1
 
-        # Quality filter: "A" = only grade A; anything else = no filter (accept all grades).
-        # Multiple q: tags are treated as AND by the API (not OR), so we cannot combine them.
-        # Omitting the filter returns all grades (A–E), giving the most training data.
-        quality_filter = f" q:{quality}" if quality == "A" else ""
+        # q:<grade> filters for that exact grade on Xeno-canto API v3.
+        quality_filter = f" q:{quality}" if quality else ""
 
         country_filter = ""
         if countries:
@@ -242,6 +240,7 @@ class XenoCantoDownloader:
         max_per_species: int = 50,
         quality: str = "A",
         countries: Optional[List[str]] = None,
+        quality_mix: Optional[Dict[str, int]] = None,
     ) -> Dict[str, List[Path]]:
         """
         Download recordings for a list of species.
@@ -253,44 +252,69 @@ class XenoCantoDownloader:
         max_per_species : int
             Maximum recordings to download per species.
         quality : str
-            Minimum Xeno-canto quality rating (A–E).
+            Xeno-canto quality grade (A–E). Ignored when *quality_mix* is set.
         countries : list[str] | None
             Restrict downloads to recordings from these countries.
+        quality_mix : dict[str, int] | None
+            When provided, download a blend of quality grades.  Keys are grade
+            letters (``"A"``, ``"B"``, ``"C"``…) and values are relative
+            weights.  The weights are normalised so that the total adds up to
+            *max_per_species*.  Example::
+
+                quality_mix={"A": 60, "B": 30, "C": 10}
+
+            This downloads ~60 % grade-A, ~30 % grade-B, ~10 % grade-C
+            recordings (out of *max_per_species*).  If fewer recordings than
+            requested are available for a grade, the shortfall is silently
+            accepted.
 
         Returns
         -------
         dict[str, list[Path]]
             Mapping from species name to list of downloaded file paths.
         """
+        # Build a list of (grade, count) pairs to fetch.
+        if quality_mix:
+            total_weight = sum(quality_mix.values())
+            grade_counts = [
+                (grade, max(1, round(weight / total_weight * max_per_species)))
+                for grade, weight in quality_mix.items()
+            ]
+        else:
+            grade_counts = [(quality, max_per_species)]
+
         results: Dict[str, List[Path]] = {}
 
         species_bar = tqdm(species_list, desc="Species", unit="sp")
         for species in species_bar:
             species_bar.set_postfix_str(species)
-            safe_name = _sanitise_name(species)
+            safe_name   = _sanitise_name(species)
             species_dir = self.output_dir / safe_name
 
-            recordings = self.search_species(
-                species, quality=quality, max_results=max_per_species, countries=countries
-            )
-            logger.info("Found %d recording(s) for '%s'.", len(recordings), species)
-
             downloaded: List[Path] = []
-            rec_bar = tqdm(recordings, desc=f"  {species.split()[0]}", unit="file", leave=False)
-            for rec in rec_bar:
-                path = self.download_recording(rec, species_dir)
-                if path:
-                    downloaded.append(path)
-                    rec_bar.set_postfix_str(path.name)
-                time.sleep(self.request_delay)
+            for grade, count in grade_counts:
+                recordings = self.search_species(
+                    species, quality=grade, max_results=count, countries=countries
+                )
+                logger.info(
+                    "Found %d grade-%s recording(s) for '%s'.",
+                    len(recordings), grade, species,
+                )
+                rec_bar = tqdm(
+                    recordings,
+                    desc=f"  {species.split()[0]} [{grade}]",
+                    unit="file",
+                    leave=False,
+                )
+                for rec in rec_bar:
+                    path = self.download_recording(rec, species_dir)
+                    if path:
+                        downloaded.append(path)
+                        rec_bar.set_postfix_str(path.name)
+                    time.sleep(self.request_delay)
 
             results[species] = downloaded
-            logger.info(
-                "Downloaded %d/%d for '%s'.",
-                len(downloaded),
-                len(recordings),
-                species,
-            )
+            logger.info("Downloaded %d file(s) for '%s'.", len(downloaded), species)
 
         return results
 
