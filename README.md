@@ -186,6 +186,27 @@ The app accepts `.mp3` or `.wav` files, slices them into 5-second clips, runs th
 
 ---
 
+## Training from scratch
+
+No pre-trained checkpoint is required. The entire pipeline — from raw audio to a ready-to-use model — runs automatically with the commands above. There is **nothing to upload manually**.
+
+The sequence is:
+
+```
+API key → download .mp3 → generate spectrograms → train → models/best_model.pt → Gradio app
+```
+
+`scripts/train.py` calls `BirdTrainer.train()`, which automatically saves the best checkpoint (lowest validation loss) to `models/best_model.pt` at the end of training. The Gradio app reads that file by default.
+
+If a pre-trained `best_model.pt` is already present in the repo (tracked via Git LFS), it is used immediately by `python app/app.py` without retraining. To retrain from scratch anyway:
+
+```bash
+python scripts/train.py          # overwrites models/best_model.pt
+python app/app.py                # now uses your freshly trained model
+```
+
+---
+
 ## Notebook
 
 | Notebook | Description | Colab |
