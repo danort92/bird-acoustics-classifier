@@ -18,6 +18,9 @@ import tempfile
 import zipfile
 from pathlib import Path
 
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import gradio as gr
 import numpy as np
 import pandas as pd
@@ -261,15 +264,29 @@ def _build_species_card(species: str, confidence: float) -> str:
 """
 
 
-def _empty_bar_df() -> pd.DataFrame:
-    return pd.DataFrame({"Species": [], "Confidence (%)": []})
+def _empty_bar_fig():
+    fig, ax = plt.subplots(figsize=(6, 3))
+    ax.set_visible(False)
+    fig.patch.set_alpha(0)
+    plt.tight_layout()
+    return fig
 
 
-def _make_bar_df(names: list[str], probs: list[float]) -> pd.DataFrame:
-    return pd.DataFrame({
-        "Species":        names,
-        "Confidence (%)": [round(p * 100, 1) for p in probs],
-    })
+def _make_bar_fig(names: list[str], probs: list[float]):
+    pct   = [p * 100 for p in probs]
+    n     = len(names)
+    colors = ["#1b5e20"] + ["#81c784"] * (n - 1)
+    fig, ax = plt.subplots(figsize=(6, max(2, n * 0.55)))
+    bars = ax.barh(names[::-1], pct[::-1], color=colors[::-1], height=0.6)
+    ax.set_xlabel("Confidence (%)", fontsize=9)
+    ax.set_xlim(0, 100)
+    ax.set_title(f"Top-{n} predictions", fontsize=10, fontweight="bold")
+    ax.bar_label(bars, fmt="%.1f%%", padding=3, fontsize=8)
+    ax.spines[["top", "right"]].set_visible(False)
+    ax.tick_params(axis="y", labelsize=8)
+    ax.tick_params(axis="x", labelsize=8)
+    plt.tight_layout()
+    return fig
 
 
 # ---------------------------------------------------------------------------
@@ -278,7 +295,7 @@ def _make_bar_df(names: list[str], probs: list[float]) -> pd.DataFrame:
 
 def classify_files(files, checkpoint: str, progress=gr.Progress(track_tqdm=True)):
     """Process one or more audio files, yielding progressive UI updates."""
-    _empty = _empty_bar_df()
+    _empty = _empty_bar_fig()
     _empty_df = pd.DataFrame(columns=["", "File", "Species", "Confidence"])
 
     def _bail(msg):
@@ -363,14 +380,14 @@ def classify_files(files, checkpoint: str, progress=gr.Progress(track_tqdm=True)
 
             df      = pd.DataFrame(rows)
             choices = list(state.keys())
-            bar_df  = _make_bar_df(top_names, top_probs)
+            bar_fig = _make_bar_fig(top_names, top_probs)
             card    = _build_species_card(top_names[0], top_probs[0])
 
             yield (
                 gallery, df,
                 f"⏳  Processing {i + 1}/{len(expanded)} — {fname}",
                 gr.update(choices=choices, value=fname),
-                state, str(dst), bar_df, card,
+                state, str(dst), bar_fig, card,
             )
 
     ok_count = len(expanded) - len(errors)
@@ -382,15 +399,15 @@ def classify_files(files, checkpoint: str, progress=gr.Progress(track_tqdm=True)
         status += f"\n⚠️  {len(errors)} file(s) failed — check that ffmpeg is installed."
 
     last = list(state.keys())[-1] if state else None
-    bar_df = _make_bar_df(state[last]["top_names"], state[last]["top_probs"]) if last else _empty
-    card   = _build_species_card(state[last]["top_names"][0], state[last]["top_probs"][0]) if last else ""
+    bar_fig = _make_bar_fig(state[last]["top_names"], state[last]["top_probs"]) if last else _empty
+    card    = _build_species_card(state[last]["top_names"][0], state[last]["top_probs"][0]) if last else ""
 
     yield (
         gallery, pd.DataFrame(rows), status,
         gr.update(choices=list(state.keys()), value=last),
         state,
         state[last]["audio_path"] if last else None,
-        bar_df, card,
+        bar_fig, card,
     )
 
 
@@ -400,11 +417,11 @@ def classify_files(files, checkpoint: str, progress=gr.Progress(track_tqdm=True)
 
 def show_detail(selected: str, state: dict):
     if not selected or not state or selected not in state:
-        return None, _empty_bar_df(), ""
+        return None, _empty_bar_fig(), ""
     d      = state[selected]
-    bar_df = _make_bar_df(d["top_names"], d["top_probs"])
-    card   = _build_species_card(d["top_names"][0], d["top_probs"][0])
-    return d["audio_path"], bar_df, card
+    bar_fig = _make_bar_fig(d["top_names"], d["top_probs"])
+    card    = _build_species_card(d["top_names"][0], d["top_probs"][0])
+    return d["audio_path"], bar_fig, card
 
 
 # ---------------------------------------------------------------------------
@@ -503,18 +520,9 @@ def build_ui(checkpoint: str = DEFAULT_CHECKPOINT) -> gr.Blocks:
             with gr.Column(scale=1, min_width=220):
                 audio_player = gr.Audio(label="Audio playback", interactive=False)
 
-            # A — Top-K bar chart
+            # A — Top-K bar chart (matplotlib, works across all Gradio versions)
             with gr.Column(scale=2):
-                bar_plot = gr.BarPlot(
-                    value=_empty_bar_df(),
-                    x="Species",
-                    y="Confidence (%)",
-                    title=f"Top-{TOP_K} predictions",
-                    color="Species",
-                    y_lim=[0, 100],
-                    height=260,
-                    tooltip=["Species", "Confidence (%)"],
-                )
+                bar_plot = gr.Plot(value=_empty_bar_fig(), label=f"Top-{TOP_K} predictions")
 
             # C — Species info card
             with gr.Column(scale=1, min_width=220):
