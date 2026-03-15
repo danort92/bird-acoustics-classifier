@@ -1,6 +1,6 @@
 # Bird Acoustics Classifier
 
-Automatic bird species recognition from audio recordings using **EfficientNet fine-tuning on mel spectrograms**, with data sourced from the **Xeno-canto API**.
+Automatic bird species recognition from audio recordings using **EfficientNet-B0 fine-tuning on mel spectrograms**, with data sourced from the **Xeno-canto API**.
 
 Target habitat: **Alpine zone** (Italy / Austria / Switzerland) — 20 characteristic species:
 
@@ -27,15 +27,19 @@ Target habitat: **Alpine zone** (Italy / Austria / Switzerland) — 20 character
 | *Emberiza cia* | Rock bunting | Rocky slopes with sparse vegetation |
 | *Gypaetus barbatus* | Bearded vulture | High alpine cliffs (reintroduced) |
 
+---
+
 ## Pipeline
 
 | Step | Module | Notebook | CLI script |
 |------|--------|----------|------------|
 | 1. Download audio | `src/download.py` | `pipeline.ipynb` | `scripts/download.py` |
 | 2. Audio → mel spectrograms | `src/preprocessing.py` | `pipeline.ipynb` | `scripts/preprocess.py` |
-| 3. Train EfficientNet | *(coming)* | *(coming)* | `scripts/train.py` |
-| 4. Evaluate & track metrics | *(coming)* | *(coming)* | `scripts/evaluate.py` |
-| 5. Interactive demo | *(coming)* | — | Gradio app |
+| 3. Train EfficientNet-B0 | `src/model.py` | `pipeline.ipynb` | `scripts/train.py` |
+| 4. Evaluate & track metrics | `src/model.py` | `pipeline.ipynb` | `scripts/evaluate.py` |
+| 5. Interactive demo | `app/app.py` | — | `python app/app.py` |
+
+---
 
 ## Project structure
 
@@ -46,91 +50,36 @@ bird-acoustics-classifier/
 ├── data/
 │   ├── raw/                # .mp3 recordings from Xeno-canto (per species)
 │   └── processed/          # mel spectrogram .png tiles (per species)
-├── models/                 # saved model checkpoints
+├── models/                 # saved model checkpoints (best_model.pt)
 ├── notebooks/
-│   └── pipeline.ipynb      # full pipeline: download → preprocessing → summary
+│   └── pipeline.ipynb      # full pipeline: download → preprocessing → training → evaluation
 ├── outputs/                # training artefacts (loss curves, confusion matrices)
 ├── reports/                # evaluation reports and plots
-├── scripts/                # CLI entry points (mirror of notebooks, terminal-friendly)
+├── scripts/                # CLI entry points (terminal-friendly alternatives to notebook)
 │   ├── download.py
 │   ├── preprocess.py
-│   ├── train.py            # stub — coming in next milestone
-│   ├── evaluate.py         # stub
-│   └── infer.py            # stub
+│   ├── train.py
+│   ├── evaluate.py
+│   └── infer.py
 ├── src/                    # reusable Python modules
-│   ├── download.py
-│   └── preprocessing.py
-├── tests/                  # unit tests
+│   ├── download.py         # Xeno-canto API downloader
+│   ├── preprocessing.py    # audio → mel spectrogram converter
+│   └── model.py            # EfficientNet-B0, BirdTrainer, inference helpers
+├── app/
+│   └── app.py              # Gradio web interface
+├── tests/
 │   ├── test_download.py
 │   └── test_preprocessing.py
-├── app/                    # Gradio application (coming)
 └── requirements.txt
 ```
 
-## Notebook
+---
 
-| Notebook | Description | Colab |
-|----------|-------------|-------|
-| `pipeline.ipynb` | Full pipeline: download → preprocessing → dataset summary | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/danort92/bird-acoustics-classifier/blob/claude/setup-project-structure-lVRTH/notebooks/pipeline.ipynb) |
-
-### Running locally (recommended)
+## Installation
 
 ```bash
 git clone https://github.com/danort92/bird-acoustics-classifier.git
 cd bird-acoustics-classifier
-pip install -r requirements.txt
-jupyter notebook notebooks/pipeline.ipynb
-```
-
-### Google Colab
-
-Open the badge above, then **Runtime → Run all**. The setup cell clones the repo, installs dependencies, and symlinks `data/raw` and `data/processed` to Google Drive so files survive session restarts.
-
-## CLI Scripts
-
-The `scripts/` folder provides terminal-friendly alternatives to the notebooks — useful for remote machines, Colab terminals, or automated pipelines.
-
-All scripts read parameters from `config/default.yaml` and accept CLI overrides:
-
-```bash
-# Download recordings for all species in config
-python scripts/download.py
-
-# Download a custom species list with 50 recordings each
-python scripts/download.py --species "Turdus merula" "Parus major" --max 50
-
-# Preprocess with overwrite
-python scripts/preprocess.py --overwrite
-
-# Show all options
-python scripts/download.py --help
-python scripts/preprocess.py --help
-```
-
-## Configuration
-
-Edit `config/default.yaml` to change species, audio parameters, or training hyperparameters without touching the code:
-
-```yaml
-species:
-  - Turdus torquatus
-  - Cinclus cinclus
-  # ... 18 more
-
-download:
-  max_per_species: 100
-  quality: "A"
-
-audio:
-  sample_rate: 22050
-  clip_duration: 5.0
-  n_mels: 128
-  img_size: [224, 224]
-```
-
-## Installation (local)
-
-```bash
 pip install -r requirements.txt
 ```
 
@@ -140,27 +89,193 @@ Set your Xeno-canto API key (required since October 2025):
 export XENO_CANTO_API_KEY="your_api_key_here"
 ```
 
-> Obtain a free key at <https://xeno-canto.org/article/854> after registering.
+> Get a free key at <https://xeno-canto.org/article/854> after registering.
 > If not set, the downloader will prompt interactively.
 
-## Quick start (local)
+---
+
+## Quick start
+
+### 1 — Download recordings
 
 ```python
-# 1 — Download
 from src.download import XenoCantoDownloader
+
 dl = XenoCantoDownloader(output_dir="data/raw")
 dl.download_species(["Turdus torquatus", "Cinclus cinclus"], max_per_species=30)
+```
 
-# 2 — Preprocess
+Or via CLI:
+
+```bash
+# All species in config/default.yaml
+python scripts/download.py
+
+# Custom species list
+python scripts/download.py --species "Turdus torquatus" "Cinclus cinclus" --max 50
+```
+
+### 2 — Generate mel spectrograms
+
+```python
 from src.preprocessing import SpectrogramConverter, AudioConfig
+
 conv = SpectrogramConverter(output_dir="data/processed")
 conv.process_all(input_dir="data/raw")
 ```
 
+Or via CLI:
+
+```bash
+python scripts/preprocess.py          # uses config/default.yaml
+python scripts/preprocess.py --overwrite   # overwrite existing PNGs
+```
+
+### 3 — Train the model
+
+```python
+from src.model import BirdTrainer, TrainingConfig
+
+cfg     = TrainingConfig.from_yaml()   # reads config/default.yaml
+trainer = BirdTrainer(cfg)
+best_path, history = trainer.train()   # saves models/best_model.pt
+```
+
+Or via CLI:
+
+```bash
+python scripts/train.py
+python scripts/train.py --epochs 50 --batch-size 64 --lr 5e-4
+```
+
+Training logs per-epoch loss/accuracy to the console and to MLflow. The best checkpoint (lowest val loss) is saved to `models/best_model.pt`.
+
+### 4 — Evaluate
+
+```python
+from src.model import BirdTrainer, TrainingConfig
+
+cfg     = TrainingConfig.from_yaml()
+trainer = BirdTrainer(cfg)
+y_true, y_pred = trainer.evaluate("models/best_model.pt")
+```
+
+Or via CLI:
+
+```bash
+python scripts/evaluate.py --checkpoint models/best_model.pt
+```
+
+### 5 — Interactive demo (Gradio)
+
+```bash
+python app/app.py
+```
+
+Then open **http://localhost:7860** in your browser.
+
+Options:
+
+```bash
+python app/app.py --checkpoint models/best_model.pt   # custom checkpoint
+python app/app.py --port 8080                         # custom port
+python app/app.py --share                             # public Gradio link
+```
+
+The app accepts `.mp3` or `.wav` files, slices them into 5-second clips, runs the model on each clip, and returns the top-k species with confidence scores, plus the mel spectrogram of the first clip.
+
+---
+
+## Notebook
+
+| Notebook | Description | Colab |
+|----------|-------------|-------|
+| `pipeline.ipynb` | Full pipeline: download → preprocessing → training → evaluation | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/danort92/bird-acoustics-classifier/blob/claude/setup-project-structure-lVRTH/notebooks/pipeline.ipynb) |
+
+### Running locally
+
+```bash
+pip install -r requirements.txt
+jupyter notebook notebooks/pipeline.ipynb
+```
+
+### Google Colab
+
+Open the badge above, then **Runtime → Run all**. The setup cell clones the repo, installs dependencies, and symlinks `data/raw` and `data/processed` to Google Drive so files survive session restarts.
+
+---
+
+## Configuration
+
+All parameters live in `config/default.yaml`. Edit it to change species, audio settings, or training hyperparameters without touching the code:
+
+```yaml
+species:
+  - Turdus torquatus
+  - Cinclus cinclus
+  # ... 18 more
+
+download:
+  max_per_species: 100
+  quality: "all"          # "all" = any grade; "A" = best quality only
+  countries: []           # e.g. ["Italy", "Austria"] — empty = worldwide
+
+audio:
+  sample_rate: 22050
+  clip_duration: 5.0      # seconds per spectrogram tile
+  n_mels: 128
+  n_fft: 2048
+  hop_length: 512
+  f_min: 500.0            # Hz — filters wind/traffic noise
+  f_max: 15000.0          # Hz
+  top_db: 80.0            # log-amplitude dynamic range
+  img_size: [224, 224]    # matches EfficientNet input
+
+training:
+  model: efficientnet_b0
+  batch_size: 32
+  epochs: 30
+  learning_rate: 0.001
+  val_split: 0.15
+  test_split: 0.15
+  seed: 42
+  patience: 7             # early stopping
+```
+
+---
+
+## Experiment tracking (MLflow)
+
+By default MLflow logs to a local `mlruns/` folder. To use **DagsHub** (free remote tracking):
+
+1. Create a free account at <https://dagshub.com> and connect this repository.
+2. Export the following variables before training:
+
+```bash
+export MLFLOW_TRACKING_URI=https://dagshub.com/<username>/bird-acoustics-classifier.mlflow
+export MLFLOW_TRACKING_USERNAME=<your-dagshub-username>
+export MLFLOW_TRACKING_PASSWORD=<your-dagshub-token>
+```
+
+No code change needed — the env var overrides the `tracking_uri` in the config.
+
+To browse the local UI:
+
+```bash
+mlflow ui
+# open http://localhost:5000
+```
+
+---
+
 ## Technologies
 
-- **PyTorch / TorchVision** — EfficientNet training and fine-tuning
-- **Librosa** — audio loading and mel spectrogram computation
-- **Gradio** — interactive demo interface
-- **MLflow** — experiment tracking
-- **Xeno-canto API v3** — bird song audio dataset
+| Library | Role |
+|---------|------|
+| **PyTorch / TorchVision** | EfficientNet-B0 training and fine-tuning |
+| **Librosa** | Audio loading and mel spectrogram computation |
+| **Gradio** | Interactive web demo |
+| **MLflow** | Experiment tracking and checkpoint logging |
+| **Xeno-canto API v3** | Bird song audio dataset |
+| **scikit-learn** | Stratified splits, evaluation metrics |
+| **Pillow / NumPy** | Image handling and array operations |
