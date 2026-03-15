@@ -299,7 +299,7 @@ def classify_files(files, checkpoint: str, progress=gr.Progress(track_tqdm=True)
     _empty_df = pd.DataFrame(columns=["", "File", "Species", "Confidence"])
 
     def _bail(msg):
-        yield [], _empty_df, msg, gr.Dropdown(choices=[], value=None, interactive=True, label="Select a file to inspect"), {}, None, _empty, ""
+        yield [], _empty_df, msg, gr.Dropdown(choices=[], value=None, interactive=True, label="Select a file to inspect"), {}, None, _empty, "", ""
 
     if not files:
         yield from _bail("Upload one or more .mp3 / .wav files (or a .zip), then click Classify.")
@@ -321,6 +321,9 @@ def classify_files(files, checkpoint: str, progress=gr.Progress(track_tqdm=True)
     except Exception as exc:
         yield from _bail(f"Model load error: {exc}")
         return
+
+    # Show loading overlay immediately
+    yield [], _empty_df, "⏳ Classifying…", gr.Dropdown(choices=[], value=None, interactive=True, label="Select a file to inspect"), {}, None, _empty, "", _LOADING_HTML
 
     if not isinstance(files, list):
         files = [files]
@@ -388,7 +391,7 @@ def classify_files(files, checkpoint: str, progress=gr.Progress(track_tqdm=True)
         gr.Dropdown(choices=list(state.keys()), value=last, interactive=True, label="Select a file to inspect"),
         state,
         state[last]["audio_path"] if last else None,
-        bar_fig, card,
+        bar_fig, card, "",
     )
 
 
@@ -423,6 +426,27 @@ _PILLS_HTML = (
     + "</div>"
 )
 
+_LOADING_HTML = """
+<style>
+@keyframes _spin { to { transform: rotate(360deg); } }
+@keyframes _fade-in { from { opacity:0; transform:scale(.96); } to { opacity:1; transform:scale(1); } }
+</style>
+<div style="position:fixed;top:0;left:0;width:100%;height:100%;
+            background:rgba(15,15,30,0.55);backdrop-filter:blur(4px);
+            z-index:9999;display:flex;align-items:center;justify-content:center">
+  <div style="background:#fff;padding:44px 64px;border-radius:20px;
+              text-align:center;box-shadow:0 12px 48px rgba(0,0,0,0.28);
+              animation:_fade-in .25s ease">
+    <div style="width:52px;height:52px;border:5px solid #e8e8f0;
+                border-top-color:#4f6ef7;border-radius:50%;margin:0 auto 20px;
+                animation:_spin .8s linear infinite"></div>
+    <p style="margin:0 0 6px;font-size:1.15rem;font-weight:700;color:#1a1a2e;
+              letter-spacing:.01em">Classifying audio…</p>
+    <p style="margin:0;font-size:0.82rem;color:#888">This may take a moment</p>
+  </div>
+</div>
+"""
+
 
 def build_ui(checkpoint: str = DEFAULT_CHECKPOINT) -> gr.Blocks:
     with gr.Blocks(title="Bird Acoustics Classifier") as demo:
@@ -442,6 +466,9 @@ def build_ui(checkpoint: str = DEFAULT_CHECKPOINT) -> gr.Blocks:
             f"{_PILLS_HTML}</div>"
         )
         gr.HTML('<hr style="border:none;border-top:1px solid #e0e0e0;margin:4px 0 16px">')
+
+        # ── Loading overlay (hidden by default) ──────────────────────────────
+        loading_overlay = gr.HTML(value="", visible=True)
 
         # ── Main row ─────────────────────────────────────────────────────────
         with gr.Row(equal_height=False):
@@ -528,6 +555,7 @@ def build_ui(checkpoint: str = DEFAULT_CHECKPOINT) -> gr.Blocks:
             gallery_output, table_output, status_output,
             file_dropdown, results_state,
             audio_player, bar_plot, species_card,
+            loading_overlay,
         ]
 
         run_btn.click(
