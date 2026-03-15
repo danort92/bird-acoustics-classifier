@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import os
+import random
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -157,16 +158,87 @@ class BirdDataset(Dataset):
 # Transforms
 # ---------------------------------------------------------------------------
 
+class _FrequencyMask:
+    """Mask a random horizontal band of the spectrogram (SpecAugment F-masking).
+
+    Simulates recordings where part of the frequency range is obscured by
+    broadband noise (wind, water) or a narrow-band interference tone.
+    """
+    def __init__(self, max_mask_frac: float = 0.15):
+        self.max_mask_frac = max_mask_frac
+
+    def __call__(self, t: torch.Tensor) -> torch.Tensor:
+        _, H, _ = t.shape
+        f  = random.randint(1, max(1, int(H * self.max_mask_frac)))
+        f0 = random.randint(0, H - f)
+        t = t.clone()
+        t[:, f0:f0 + f, :] = 0.0
+        return t
+
+
+class _TimeMask:
+    """Mask a random vertical band of the spectrogram (SpecAugment T-masking).
+
+    Simulates dropouts, clipping, or short silences in lower-quality recordings.
+    """
+    def __init__(self, max_mask_frac: float = 0.15):
+        self.max_mask_frac = max_mask_frac
+
+    def __call__(self, t: torch.Tensor) -> torch.Tensor:
+        _, _, W = t.shape
+        s  = random.randint(1, max(1, int(W * self.max_mask_frac)))
+        s0 = random.randint(0, W - s)
+        t = t.clone()
+        t[:, :, s0:s0 + s] = 0.0
+        return t
+
+
+class _GaussianNoise:
+    """Add random Gaussian noise to the spectrogram tensor.
+
+    Mimics the elevated noise floor typical of grade B/C recordings.
+    """
+    def __init__(self, std: float = 0.05):
+        self.std = std
+
+    def __call__(self, t: torch.Tensor) -> torch.Tensor:
+        return t + torch.randn_like(t) * self.std
+
+
 def get_transforms(img_size: Tuple[int, int] = (224, 224)):
-    """Return (train_transform, val_transform)."""
+    """Return (train_transform, val_transform).
+
+    The train transform applies three augmentations that together simulate
+    the acoustic degradation found in lower-quality (B/C) recordings:
+      - ColorJitter  — brightness/contrast shifts mimic volume and dynamic-range
+                       differences between recording setups.
+      - FrequencyMask / TimeMask (SpecAugment) — random rectangular masks teach
+                       the model to classify from partial spectrograms, reducing
+                       reliance on any single frequency band or time segment.
+      - GaussianNoise — elevated noise floor typical of grade B/C recordings.
+
+    The val transform is kept deterministic (no augmentation).
+    """
     mean = [0.485, 0.456, 0.406]
     std  = [0.229, 0.224, 0.225]
-    tf = transforms.Compose([
+
+    train_tf = transforms.Compose([
+        transforms.Resize(img_size),
+        transforms.ColorJitter(brightness=0.3, contrast=0.3),
+        transforms.ToTensor(),
+        transforms.Normalize(mean, std),
+        transforms.RandomApply([_FrequencyMask(max_mask_frac=0.15)], p=0.5),
+        transforms.RandomApply([_TimeMask(max_mask_frac=0.15)],      p=0.5),
+        transforms.RandomApply([_GaussianNoise(std=0.05)],            p=0.3),
+    ])
+
+    val_tf = transforms.Compose([
         transforms.Resize(img_size),
         transforms.ToTensor(),
         transforms.Normalize(mean, std),
     ])
-    return tf, tf
+
+    return train_tf, val_tf
 
 
 # ---------------------------------------------------------------------------
