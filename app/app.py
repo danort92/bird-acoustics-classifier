@@ -153,7 +153,11 @@ def _resolve_path(f) -> str:
     if isinstance(f, str):
         return f
     if isinstance(f, dict):
-        return f["name"]
+        # Gradio 4.x uses "path"; older versions used "name"
+        return f.get("path") or f.get("name") or next(iter(f.values()))
+    # Object with .path (Gradio 4.x FileData) or .name
+    if hasattr(f, "path"):
+        return f.path
     return f.name
 
 
@@ -331,7 +335,7 @@ def classify_files(files, checkpoint: str, progress=gr.Progress(track_tqdm=True)
                 spec, top_names, top_probs = _infer_file(
                     str(path), model, classes, audio_cfg, val_tf, device
                 )
-            except RuntimeError as exc:
+            except Exception as exc:
                 errors.append(str(exc))
                 rows.append({"": "🔴", "File": fname, "Species": "Error", "Confidence": "—"})
                 df = pd.DataFrame(rows)
