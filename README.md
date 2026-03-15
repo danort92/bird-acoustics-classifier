@@ -29,6 +29,70 @@ Target habitat: **Alpine zone** (Italy / Austria / Switzerland) — 20 character
 
 ---
 
+## Why 20 species — and how to add more
+
+### Rationale for the current selection
+
+The 20 species were chosen based on two criteria:
+
+1. **Ecological coherence** — all are characteristic of the Alpine zone (Italy / Austria / Switzerland), making the classifier useful for a single, well-defined habitat.
+2. **Compute budget** — with `max_per_species: 100` recordings and 30 training epochs on a single consumer GPU (or Google Colab free tier), the full pipeline completes in roughly 2–3 hours. Scaling to more species increases download size, preprocessing time, and training time roughly linearly.
+
+> On a machine without a GPU, training 20 species for 30 epochs already takes several hours. Adding more species without access to a dedicated GPU or cloud accelerator is feasible but slow.
+
+### Adding more species
+
+The entire pipeline is driven by the species list in `config/default.yaml` — no code changes are needed.
+
+**Step 1 — Find valid species names**
+
+Use the scientific name exactly as it appears on [Xeno-canto](https://xeno-canto.org). Search the site to verify that enough recordings exist (aim for at least 30–50 per species).
+
+**Step 2 — Edit the config**
+
+```yaml
+# config/default.yaml
+species:
+  - Turdus torquatus
+  - Cinclus cinclus
+  # ... existing 18 species ...
+  - Aquila chrysaetos       # Golden eagle  ← add new species here
+  - Tetrao tetrix           # Black grouse
+```
+
+**Step 3 — Re-run the pipeline**
+
+```bash
+# Download recordings only for the new species (faster)
+python scripts/download.py --species "Aquila chrysaetos" "Tetrao tetrix" --max 100
+
+# Or re-download everything from scratch
+python scripts/download.py
+
+# Regenerate spectrograms (skip existing ones automatically)
+python scripts/preprocess.py
+
+# Retrain — the model head is rebuilt to match the new number of classes
+python scripts/train.py
+
+# Launch the updated demo
+python app/app.py
+```
+
+> `train.py` rebuilds the EfficientNet-B0 classification head automatically to match the number of species found in `data/processed/`. You do **not** need to edit any code — only the YAML.
+
+**Practical limits (rough estimates)**
+
+| Species | ~Audio files | ~Preprocessing | ~Training (GPU) | ~Training (CPU only) |
+|--------:|-------------:|---------------:|----------------:|---------------------:|
+| 20 | 2 000 | 20 min | 1–2 h | 4–8 h |
+| 50 | 5 000 | 45 min | 3–5 h | 12–20 h |
+| 100 | 10 000 | 1.5 h | 6–10 h | 30–50 h |
+
+For large expansions, consider reducing `max_per_species` (e.g. 50) or increasing `batch_size` and using a cloud GPU (Colab, Kaggle, Vast.ai).
+
+---
+
 ## Pipeline
 
 | Step | Module | Notebook | CLI script |
