@@ -16,7 +16,6 @@ Quick start:
 from __future__ import annotations
 
 import logging
-import random
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -48,63 +47,6 @@ def _safe_num_workers(n: int) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Custom spectrogram transforms (applied on tensors after ToTensor)
-# ---------------------------------------------------------------------------
-
-class FrequencyMasking:
-    """Zero out *num_masks* random horizontal bands of up to *max_mask_param* rows.
-
-    Simulates recordings where certain frequency ranges are masked by noise
-    or outside the microphone's sensitivity — forces the model to classify
-    with partial frequency information.
-    """
-
-    def __init__(self, max_mask_param: int = 20, num_masks: int = 2):
-        self.max_mask_param = max_mask_param
-        self.num_masks = num_masks
-
-    def __call__(self, tensor: torch.Tensor) -> torch.Tensor:
-        _, H, _ = tensor.shape
-        tensor = tensor.clone()
-        for _ in range(self.num_masks):
-            f = random.randint(1, self.max_mask_param)
-            f0 = random.randint(0, max(0, H - f))
-            tensor[:, f0:f0 + f, :] = 0.0
-        return tensor
-
-
-class TimeMasking:
-    """Zero out *num_masks* random vertical bands of up to *max_mask_param* columns.
-
-    Simulates recordings with brief silences, wind bursts, or clipping —
-    forces the model to classify even when part of the call is missing.
-    """
-
-    def __init__(self, max_mask_param: int = 40, num_masks: int = 2):
-        self.max_mask_param = max_mask_param
-        self.num_masks = num_masks
-
-    def __call__(self, tensor: torch.Tensor) -> torch.Tensor:
-        _, _, W = tensor.shape
-        tensor = tensor.clone()
-        for _ in range(self.num_masks):
-            t = random.randint(1, self.max_mask_param)
-            t0 = random.randint(0, max(0, W - t))
-            tensor[:, :, t0:t0 + t] = 0.0
-        return tensor
-
-
-class GaussianNoise:
-    """Add zero-mean Gaussian noise — simulates background noise in field recordings."""
-
-    def __init__(self, std: float = 0.02):
-        self.std = std
-
-    def __call__(self, tensor: torch.Tensor) -> torch.Tensor:
-        return tensor + torch.randn_like(tensor) * self.std
-
-
-# ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
@@ -126,14 +68,6 @@ class TrainingConfig:
     img_size:             Tuple[int, int] = field(default_factory=lambda: (224, 224))
     use_scheduler:        bool  = True
     patience:             int   = 7
-    # Augmentation strategy: 'none' | 'basic' | 'specaugment'
-    augment_strategy:     str   = "specaugment"
-    # Label smoothing: 0.0 = off, 0.1 recommended to reduce overconfidence
-    label_smoothing:      float = 0.1
-    # Progressive unfreezing: train head only → unfreeze backbone at unfreeze_epoch
-    progressive_unfreeze: bool  = True
-    unfreeze_epoch:       int   = 5
-    use_weighted_sampler: bool  = True
     experiment_name:      str   = "bird-acoustics-classifier"
     tracking_uri:         str   = "mlruns"
 
@@ -158,11 +92,6 @@ class TrainingConfig:
             seed                 = t.get("seed",                 42),
             num_workers          = t.get("num_workers",          4),
             img_size             = tuple(a.get("img_size",       [224, 224])),
-            augment_strategy     = t.get("augment_strategy",     "specaugment"),
-            label_smoothing      = t.get("label_smoothing",      0.1),
-            progressive_unfreeze = t.get("progressive_unfreeze",  True),
-            unfreeze_epoch       = t.get("unfreeze_epoch",        5),
-            use_weighted_sampler = t.get("use_weighted_sampler",  True),
             experiment_name      = m.get("experiment_name",       "bird-acoustics-classifier"),
             tracking_uri         = m.get("tracking_uri",         "mlruns"),
         )
@@ -227,54 +156,16 @@ class BirdDataset(Dataset):
 # Transforms
 # ---------------------------------------------------------------------------
 
-def get_transforms(
-    img_size: Tuple[int, int] = (224, 224),
-    augment_strategy: str = "specaugment",
-):
-    """Return (train_transform, val_transform).
-
-    augment_strategy
-    ----------------
-    ``'none'``
-        No augmentation — pure baseline / ablation.
-    ``'basic'``
-        Original approach: RandomHorizontalFlip + ColorJitter.
-        Kept for comparison; not recommended for spectrograms.
-    ``'specaugment'``
-        Domain-appropriate pipeline:
-
-        * FrequencyMasking — masks random frequency bands
-        * TimeMasking      — masks random time segments
-        * GaussianNoise    — simulates field recording noise
-        * RandomErasing    — drops random rectangular patches
-    """
+def get_transforms(img_size: Tuple[int, int] = (224, 224)):
+    """Return (train_transform, val_transform)."""
     mean = [0.485, 0.456, 0.406]
     std  = [0.229, 0.224, 0.225]
-
-    base      = [transforms.Resize(img_size)]
-    to_tensor = [transforms.ToTensor(), transforms.Normalize(mean, std)]
-
-    if augment_strategy == "basic":
-        pil_aug    = [
-            transforms.RandomHorizontalFlip(),
-            transforms.ColorJitter(brightness=0.2, contrast=0.2),
-        ]
-        tensor_aug = []
-    elif augment_strategy == "specaugment":
-        pil_aug    = []
-        tensor_aug = [
-            FrequencyMasking(max_mask_param=20, num_masks=2),
-            TimeMasking(max_mask_param=40, num_masks=2),
-            GaussianNoise(std=0.02),
-            transforms.RandomErasing(p=0.3, scale=(0.02, 0.15)),
-        ]
-    else:  # 'none'
-        pil_aug    = []
-        tensor_aug = []
-
-    train_tf = transforms.Compose(base + pil_aug + to_tensor + tensor_aug)
-    val_tf   = transforms.Compose(base + to_tensor)
-    return train_tf, val_tf
+    tf = transforms.Compose([
+        transforms.Resize(img_size),
+        transforms.ToTensor(),
+        transforms.Normalize(mean, std),
+    ])
+    return tf, tf
 
 
 # ---------------------------------------------------------------------------
@@ -354,10 +245,10 @@ class BirdTrainer:
     def build_dataloaders(
         self,
         species: Optional[List[str]] = None,
-    ) -> Tuple[DataLoader, DataLoader, DataLoader, int, Optional[torch.Tensor]]:
+    ) -> Tuple[DataLoader, DataLoader, DataLoader, int]:
         """Stratified train / val / test split. Returns (train, val, test, num_classes)."""
         cfg = self.cfg
-        train_tf, val_tf = get_transforms(cfg.img_size, augment_strategy=cfg.augment_strategy)
+        train_tf, val_tf = get_transforms(cfg.img_size)
 
         ref_ds  = BirdDataset(cfg.processed_dir, transform=None, species=species)
         n       = len(ref_ds)
@@ -399,29 +290,11 @@ class BirdTrainer:
             persistent_workers = nw > 0,
         )
 
-        train_ds = _make_ds(train_idx, train_tf)
-        train_loader = DataLoader(train_ds, shuffle=True, **kw)
-
-        class_weights_tensor: Optional[torch.Tensor] = None
-        if cfg.use_weighted_sampler:
-            train_labels = [train_ds.samples[i][1] for i in range(len(train_ds))]
-            class_counts = np.bincount(train_labels, minlength=num_classes).astype(float)
-            weights = torch.tensor(
-                len(train_labels) / (num_classes * np.where(class_counts > 0, class_counts, 1.0)),
-                dtype=torch.float32,
-            )
-            class_weights_tensor = weights
-            logger.info(
-                "Class-weighted loss enabled — counts: %s",
-                class_counts.astype(int).tolist(),
-            )
-
         return (
-            train_loader,
+            DataLoader(_make_ds(train_idx, train_tf), shuffle=True,  **kw),
             DataLoader(_make_ds(val_idx,   val_tf),   shuffle=False, **kw),
             DataLoader(_make_ds(test_idx,  val_tf),   shuffle=False, **kw),
             num_classes,
-            class_weights_tensor,
         )
 
     def train(
@@ -446,27 +319,11 @@ class BirdTrainer:
                 }
         """
         cfg = self.cfg
-        train_loader, val_loader, test_loader, num_classes, class_weights = self.build_dataloaders(species)
+        train_loader, val_loader, test_loader, num_classes = self.build_dataloaders(species)
 
-        model = build_model(num_classes).to(self.device)
-        criterion = nn.CrossEntropyLoss(
-            weight=class_weights.to(self.device) if class_weights is not None else None,
-            label_smoothing=cfg.label_smoothing,
-        )
-
-        # Progressive unfreezing: freeze backbone, train only the head first
-        if cfg.progressive_unfreeze:
-            for param in model.features.parameters():
-                param.requires_grad = False
-            optimizer = Adam(
-                filter(lambda p: p.requires_grad, model.parameters()),
-                lr=cfg.learning_rate,
-            )
-            logger.info(
-                "Progressive unfreeze ON — backbone frozen for first %d epochs", cfg.unfreeze_epoch
-            )
-        else:
-            optimizer = Adam(model.parameters(), lr=cfg.learning_rate)
+        model     = build_model(num_classes).to(self.device)
+        criterion = nn.CrossEntropyLoss()
+        optimizer = Adam(model.parameters(), lr=cfg.learning_rate)
 
         scheduler = (
             CosineAnnealingLR(optimizer, T_max=cfg.epochs, eta_min=1e-6)
@@ -504,10 +361,6 @@ class BirdTrainer:
                 "img_size":             f"{cfg.img_size[0]}x{cfg.img_size[1]}",
                 "device":               str(self.device),
                 "scheduler":            "cosine" if cfg.use_scheduler else "none",
-                "augment_strategy":     cfg.augment_strategy,
-                "label_smoothing":      cfg.label_smoothing,
-                "progressive_unfreeze": cfg.progressive_unfreeze,
-                "unfreeze_epoch":       cfg.unfreeze_epoch,
             })
 
             print(_SEP)
@@ -515,19 +368,6 @@ class BirdTrainer:
             print(_SEP)
 
             for epoch in range(1, cfg.epochs + 1):
-
-                # Unfreeze backbone after warm-up epochs
-                if cfg.progressive_unfreeze and epoch == cfg.unfreeze_epoch + 1:
-                    for param in model.features.parameters():
-                        param.requires_grad = True
-                    optimizer.add_param_group({
-                        "params": list(model.features.parameters()),
-                        "lr":     cfg.learning_rate * 0.1,
-                    })
-                    logger.info(
-                        "Backbone unfrozen at epoch %d — backbone lr=%.2e",
-                        epoch, cfg.learning_rate * 0.1,
-                    )
 
                 train_loss, train_acc = self._run_epoch(train_loader, model, criterion, optimizer)
                 val_loss,   val_acc   = self._run_epoch(val_loader,   model, criterion)
@@ -575,17 +415,12 @@ class BirdTrainer:
                 else:
                     patience_cnt += 1
 
-                unfreeze_tag = (
-                    " [unfreeze]"
-                    if cfg.progressive_unfreeze and epoch == cfg.unfreeze_epoch + 1
-                    else ""
-                )
                 print(
                     f"{epoch:>4}/{cfg.epochs:<4} │ "
                     f"{train_loss:>10.4f} {train_acc:>9.3f} │ "
                     f"{val_loss:>8.4f} {val_acc:>7.3f} │ "
                     f"{lr:>9.2e}"
-                    f"{checkpoint_marker}{unfreeze_tag}"
+                    f"{checkpoint_marker}"
                 )
 
                 if patience_cnt >= cfg.patience:
@@ -671,7 +506,7 @@ class BirdTrainer:
         -------
         y_true, y_pred : np.ndarray of shape (N,)
         """
-        _, _, test_loader, num_classes, _ = self.build_dataloaders(species)
+        _, _, test_loader, num_classes = self.build_dataloaders(species)
         ckpt  = torch.load(checkpoint_path, map_location=self.device)
         model = build_model(num_classes, pretrained=False).to(self.device)
         model.load_state_dict(ckpt["model_state_dict"])
@@ -723,7 +558,7 @@ def predict(
     Returns a list of (class_name, probability) tuples, sorted by probability.
     """
     model, classes, img_size = load_model(checkpoint_path, device)
-    _, val_tf = get_transforms(img_size, augment_strategy="none")
+    _, val_tf = get_transforms(img_size)
 
     img    = Image.open(image_path).convert("RGB")
     tensor = val_tf(img).unsqueeze(0).to(device)
