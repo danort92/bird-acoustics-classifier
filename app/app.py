@@ -299,7 +299,7 @@ def classify_files(files, checkpoint: str, progress=gr.Progress(track_tqdm=True)
     _empty_df = pd.DataFrame(columns=["", "File", "Species", "Confidence"])
 
     def _bail(msg):
-        yield [], _empty_df, msg, gr.update(choices=[], value=None), {}, None, _empty, ""
+        yield [], _empty_df, msg, gr.Dropdown(choices=[], value=None, interactive=True, label="Select a file to inspect"), {}, None, _empty, ""
 
     if not files:
         yield from _bail("Upload one or more .mp3 / .wav files (or a .zip), then click Classify.")
@@ -359,7 +359,7 @@ def classify_files(files, checkpoint: str, progress=gr.Progress(track_tqdm=True)
                 yield (
                     gallery, df,
                     f"⚠️  Error on {fname}: {exc}",
-                    gr.update(choices=list(state.keys()), value=None),
+                    gr.Dropdown(choices=list(state.keys()), value=None, interactive=True, label="Select a file to inspect"),
                     state, None, _empty, "",
                 )
                 continue
@@ -386,7 +386,7 @@ def classify_files(files, checkpoint: str, progress=gr.Progress(track_tqdm=True)
             yield (
                 gallery, df,
                 f"⏳  Processing {i + 1}/{len(expanded)} — {fname}",
-                gr.update(choices=choices, value=fname),
+                gr.Dropdown(choices=choices, value=fname, interactive=True, label="Select a file to inspect"),
                 state, str(dst), bar_fig, card,
             )
 
@@ -404,7 +404,7 @@ def classify_files(files, checkpoint: str, progress=gr.Progress(track_tqdm=True)
 
     yield (
         gallery, pd.DataFrame(rows), status,
-        gr.update(choices=list(state.keys()), value=last),
+        gr.Dropdown(choices=list(state.keys()), value=last, interactive=True, label="Select a file to inspect"),
         state,
         state[last]["audio_path"] if last else None,
         bar_fig, card,
@@ -444,9 +444,7 @@ _PILLS_HTML = (
 
 
 def build_ui(checkpoint: str = DEFAULT_CHECKPOINT) -> gr.Blocks:
-    results_state = gr.State({})
-
-    with gr.Blocks(title="Bird Acoustics Classifier", theme=THEME, css=CSS) as demo:
+    with gr.Blocks(title="Bird Acoustics Classifier") as demo:
 
         # ── Header ──────────────────────────────────────────────────────────
         gr.HTML("""
@@ -536,6 +534,9 @@ def build_ui(checkpoint: str = DEFAULT_CHECKPOINT) -> gr.Blocks:
             '</p>'
         )
 
+        # ── State (must be inside Blocks context) ───────────────────────────
+        results_state = gr.State({})
+
         # ── Events ──────────────────────────────────────────────────────────
         _classify_outputs = [
             gallery_output, table_output, status_output,
@@ -590,4 +591,6 @@ if __name__ == "__main__":
         server_port=args.port,
         inbrowser=True,
         max_file_size="200mb",
+        theme=THEME,
+        css=CSS,
     )
