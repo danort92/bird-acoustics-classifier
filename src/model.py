@@ -30,7 +30,7 @@ from PIL import Image
 from sklearn.model_selection import train_test_split
 from torch.optim import Adam
 from torch.optim.lr_scheduler import CosineAnnealingLR
-from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
+from torch.utils.data import DataLoader, Dataset
 from torchvision import models, transforms
 from tqdm.auto import tqdm
 
@@ -354,7 +354,7 @@ class BirdTrainer:
     def build_dataloaders(
         self,
         species: Optional[List[str]] = None,
-    ) -> Tuple[DataLoader, DataLoader, DataLoader, int]:
+    ) -> Tuple[DataLoader, DataLoader, DataLoader, int, Optional[torch.Tensor]]:
         """Stratified train / val / test split. Returns (train, val, test, num_classes)."""
         cfg = self.cfg
         train_tf, val_tf = get_transforms(cfg.img_size, augment_strategy=cfg.augment_strategy)
@@ -400,27 +400,28 @@ class BirdTrainer:
         )
 
         train_ds = _make_ds(train_idx, train_tf)
+        train_loader = DataLoader(train_ds, shuffle=True, **kw)
 
+        class_weights_tensor: Optional[torch.Tensor] = None
         if cfg.use_weighted_sampler:
             train_labels = [train_ds.samples[i][1] for i in range(len(train_ds))]
             class_counts = np.bincount(train_labels, minlength=num_classes).astype(float)
-            class_weights = 1.0 / np.where(class_counts > 0, class_counts, 1.0)
-            sample_weights = [class_weights[lbl] for lbl in train_labels]
-            sampler = WeightedRandomSampler(
-                weights=sample_weights,
-                num_samples=len(sample_weights),
-                replacement=True,
+            weights = torch.tensor(
+                len(train_labels) / (num_classes * np.where(class_counts > 0, class_counts, 1.0)),
+                dtype=torch.float32,
             )
-            logger.info("Using WeightedRandomSampler — class counts: %s", class_counts.astype(int).tolist())
-            train_loader = DataLoader(train_ds, sampler=sampler, **kw)
-        else:
-            train_loader = DataLoader(train_ds, shuffle=True, **kw)
+            class_weights_tensor = weights
+            logger.info(
+                "Class-weighted loss enabled — counts: %s",
+                class_counts.astype(int).tolist(),
+            )
 
         return (
             train_loader,
             DataLoader(_make_ds(val_idx,   val_tf),   shuffle=False, **kw),
             DataLoader(_make_ds(test_idx,  val_tf),   shuffle=False, **kw),
             num_classes,
+            class_weights_tensor,
         )
 
     def train(
@@ -445,10 +446,13 @@ class BirdTrainer:
                 }
         """
         cfg = self.cfg
-        train_loader, val_loader, test_loader, num_classes = self.build_dataloaders(species)
+        train_loader, val_loader, test_loader, num_classes, class_weights = self.build_dataloaders(species)
 
-        model     = build_model(num_classes).to(self.device)
-        criterion = nn.CrossEntropyLoss(label_smoothing=cfg.label_smoothing)
+        model = build_model(num_classes).to(self.device)
+        criterion = nn.CrossEntropyLoss(
+            weight=class_weights.to(self.device) if class_weights is not None else None,
+            label_smoothing=cfg.label_smoothing,
+        )
 
         # Progressive unfreezing: freeze backbone, train only the head first
         if cfg.progressive_unfreeze:
