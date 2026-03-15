@@ -293,7 +293,7 @@ def _make_bar_fig(names: list[str], probs: list[float]):
 # Main inference function — generator for progressive updates (D)
 # ---------------------------------------------------------------------------
 
-def classify_files(files, checkpoint: str, progress=gr.Progress(track_tqdm=True)):
+def classify_files(files, checkpoint: str):
     """Process one or more audio files, yielding progressive UI updates."""
     _empty = _empty_bar_fig()
     _empty_df = pd.DataFrame(columns=["", "File", "Predicted Species", "Confidence"])
@@ -342,7 +342,7 @@ def classify_files(files, checkpoint: str, progress=gr.Progress(track_tqdm=True)
 
         for i, path in enumerate(expanded):
             fname = Path(path).name
-            progress((i + 1) / len(expanded), desc=f"Analysing {fname} …")
+            yield [], _empty_df, f"⏳ [{i + 1}/{len(expanded)}] Analysing {fname} …", gr.Dropdown(choices=[], value=None, interactive=False, label="Select a file to inspect"), {}, None, _empty, ""
 
             # Copy to persistent dir so audio player can access it after completion
             dst = run_audio_dir / fname
