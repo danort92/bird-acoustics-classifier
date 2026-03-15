@@ -2,7 +2,7 @@
 
 Accepts one or more audio recordings (.mp3 or .wav), converts them into
 mel-spectrogram clips, runs the trained EfficientNet-B0 model, and returns
-the top-k species predictions with confidence scores.
+top-k species predictions with confidence scores.
 
 Usage:
     python app/app.py
@@ -12,6 +12,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
 import tempfile
 import zipfile
@@ -35,38 +36,91 @@ from src.preprocessing import AudioConfig, SpectrogramConverter
 
 DEFAULT_CHECKPOINT = "models/best_model.pt"
 DEFAULT_CONFIG     = "config/default.yaml"
+TOP_K              = 5
 
 # ---------------------------------------------------------------------------
-# Custom CSS
+# Species metadata
+# ---------------------------------------------------------------------------
+
+SPECIES_INFO: dict[str, dict] = {
+    "Turdus Torquatus":        {"common": "Ring ouzel",              "habitat": "Rocky slopes, high-altitude forests",     "xc_query": "Turdus+torquatus"},
+    "Phoenicurus Ochruros":    {"common": "Black redstart",          "habitat": "Rocky terrain, mountain villages",        "xc_query": "Phoenicurus+ochruros"},
+    "Prunella Collaris":       {"common": "Alpine accentor",         "habitat": "High rocky areas above treeline",         "xc_query": "Prunella+collaris"},
+    "Pyrrhocorax Graculus":    {"common": "Yellow-billed chough",    "habitat": "Alpine cliffs and glaciers",              "xc_query": "Pyrrhocorax+graculus"},
+    "Pyrrhocorax Pyrrhocorax": {"common": "Red-billed chough",       "habitat": "Alpine meadows and cliffs",               "xc_query": "Pyrrhocorax+pyrrhocorax"},
+    "Tichodroma Muraria":      {"common": "Wallcreeper",             "habitat": "Vertical rock faces",                     "xc_query": "Tichodroma+muraria"},
+    "Anthus Spinoletta":       {"common": "Water pipit",             "habitat": "Alpine meadows and streams",              "xc_query": "Anthus+spinoletta"},
+    "Montifringilla Nivalis":  {"common": "White-winged snowfinch",  "habitat": "Above treeline, snowfields",              "xc_query": "Montifringilla+nivalis"},
+    "Lagopus Muta":            {"common": "Rock ptarmigan",          "habitat": "High alpine tundra",                      "xc_query": "Lagopus+muta"},
+    "Dryocopus Martius":       {"common": "Black woodpecker",        "habitat": "Subalpine conifer forests",               "xc_query": "Dryocopus+martius"},
+    "Tetrao Urogallus":        {"common": "Western capercaillie",    "habitat": "Old-growth conifer forests",              "xc_query": "Tetrao+urogallus"},
+    "Picoides Tridactylus":    {"common": "Three-toed woodpecker",   "habitat": "Spruce forests",                          "xc_query": "Picoides+tridactylus"},
+    "Loxia Curvirostra":       {"common": "Common crossbill",        "habitat": "Conifer forests",                         "xc_query": "Loxia+curvirostra"},
+    "Nucifraga Caryocatactes": {"common": "Spotted nutcracker",      "habitat": "Mountain conifer forests",                "xc_query": "Nucifraga+caryocatactes"},
+    "Regulus Ignicapilla":     {"common": "Firecrest",               "habitat": "Mixed mountain forests",                  "xc_query": "Regulus+ignicapilla"},
+    "Cinclus Cinclus":         {"common": "White-throated dipper",   "habitat": "Alpine streams and torrents",             "xc_query": "Cinclus+cinclus"},
+    "Ficedula Albicollis":     {"common": "Collared flycatcher",     "habitat": "Deciduous mountain forests",              "xc_query": "Ficedula+albicollis"},
+    "Saxicola Rubetra":        {"common": "Whinchat",                "habitat": "Subalpine meadows",                       "xc_query": "Saxicola+rubetra"},
+    "Emberiza Cia":            {"common": "Rock bunting",            "habitat": "Rocky slopes with sparse vegetation",     "xc_query": "Emberiza+cia"},
+    "Gypaetus Barbatus":       {"common": "Bearded vulture",         "habitat": "High alpine cliffs (reintroduced)",       "xc_query": "Gypaetus+barbatus"},
+}
+
+# ---------------------------------------------------------------------------
+# Custom CSS & theme
 # ---------------------------------------------------------------------------
 
 CSS = """
-/* global */
-.gradio-container { max-width: 1200px !important; margin: 0 auto; }
+/* ── Layout ──────────────────────────────────────────────────────────── */
+.gradio-container { max-width: 1280px !important; margin: 0 auto; }
 
-/* header */
-.app-header { text-align: center; padding: 20px 0 4px; }
-.app-header h1 { font-size: 2rem; font-weight: 700; color: #1b5e20; margin-bottom: 4px; }
-.app-header p  { color: #555; font-size: 0.95rem; }
+/* ── Header ──────────────────────────────────────────────────────────── */
+.app-header { text-align: center; padding: 24px 0 6px; }
+.app-header h1 {
+    font-size: 2.2rem; font-weight: 800;
+    background: linear-gradient(135deg, #1b5e20 0%, #388e3c 60%, #66bb6a 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    margin-bottom: 6px;
+}
+.app-header p { color: #666; font-size: 0.95rem; letter-spacing: 0.02em; }
 
-/* species pills */
+/* ── Species pills ────────────────────────────────────────────────────── */
 .species-pills {
     display: flex; flex-wrap: wrap; gap: 5px;
-    justify-content: center; margin: 10px 0 16px;
+    justify-content: center; margin: 10px 0 18px;
 }
 .species-pill {
     background: #e8f5e9; border: 1px solid #a5d6a7; border-radius: 12px;
-    padding: 2px 9px; font-size: 0.75rem; color: #2e7d32; white-space: nowrap;
+    padding: 3px 10px; font-size: 0.73rem; color: #2e7d32;
 }
 
-/* run button */
-#run-btn { background: #2e7d32 !important; font-weight: 600; }
-#run-btn:hover { background: #1b5e20 !important; }
+/* ── Run button ───────────────────────────────────────────────────────── */
+#run-btn { font-weight: 700; letter-spacing: 0.03em; }
 
-/* footer */
-.app-footer { text-align: center; color: #aaa; font-size: 0.78rem; margin-top: 12px; }
+/* ── Species info card ────────────────────────────────────────────────── */
+.species-card {
+    background: linear-gradient(135deg, #f1f8e9, #e8f5e9);
+    border: 1px solid #a5d6a7; border-radius: 12px;
+    padding: 16px 18px; height: 100%; box-sizing: border-box;
+}
+.species-card h2  { font-size: 1.2rem; font-weight: 700; color: #1b5e20; margin: 0 0 2px; }
+.species-card .sci { font-style: italic; color: #388e3c; font-size: 0.87rem; margin: 0 0 12px; }
+.species-card .row { display: flex; gap: 8px; margin-bottom: 6px; align-items: flex-start; }
+.species-card .lbl { font-weight: 600; color: #555; min-width: 76px; font-size: 0.83rem; }
+.species-card .val { color: #333; font-size: 0.83rem; }
+.species-card .conf-bar { height: 8px; border-radius: 4px; margin-top: 10px; background: #c8e6c9; overflow: hidden; }
+.species-card .conf-fill { height: 100%; border-radius: 4px; background: linear-gradient(90deg, #43a047, #1b5e20); }
+.species-card a { color: #2e7d32; font-size: 0.82rem; text-decoration: none; display: inline-block; margin-top: 12px; }
+.species-card a:hover { text-decoration: underline; }
+
+/* ── Footer ───────────────────────────────────────────────────────────── */
+.app-footer { text-align: center; color: #aaa; font-size: 0.78rem; margin-top: 16px; padding-bottom: 8px; }
 .app-footer a { color: #81c784; }
 """
+
+THEME = gr.themes.Base(
+    primary_hue=gr.themes.colors.green,
+    neutral_hue=gr.themes.colors.gray,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -91,24 +145,20 @@ def _load_audio_config(config_path: str = DEFAULT_CONFIG) -> AudioConfig:
 
 
 def _fmt_class(name: str) -> str:
-    """Convert directory name to display name: 'turdus_torquatus' → 'Turdus Torquatus'."""
+    """'turdus_torquatus' → 'Turdus Torquatus'."""
     return name.replace("_", " ").title()
 
 
 def _resolve_path(f) -> str:
-    """Extract a file path string from whatever Gradio hands us."""
     if isinstance(f, str):
         return f
     if isinstance(f, dict):
         return f["name"]
-    return f.name  # UploadedFile-like object
+    return f.name
 
 
 def _expand_files(files: list, tmpdir: Path) -> list[str]:
-    """Expand a mixed list of audio files and ZIPs into a flat list of audio paths.
-
-    ZIP contents are extracted under *tmpdir*.
-    """
+    """Expand audio files and ZIPs into a flat list of audio paths."""
     audio_suffixes = {".mp3", ".wav"}
     result: list[str] = []
     for f in files:
@@ -124,6 +174,14 @@ def _expand_files(files: list, tmpdir: Path) -> list[str]:
     return result
 
 
+def _conf_badge(conf: float) -> str:
+    if conf >= 0.80:
+        return "🟢"
+    if conf >= 0.50:
+        return "🟡"
+    return "🔴"
+
+
 def _infer_file(
     audio_path: str,
     model,
@@ -131,11 +189,11 @@ def _infer_file(
     audio_cfg: AudioConfig,
     val_tf,
     device: torch.device,
-) -> tuple[Image.Image | None, str, float]:
+    top_k: int = TOP_K,
+) -> tuple[Image.Image | None, list[str], list[float]]:
     """Run inference on a single audio file.
 
-    Returns (first_spectrogram, species_name, confidence).
-    Raises RuntimeError if the audio cannot be loaded or produces no clips.
+    Returns (first_spectrogram, top_k_species_names, top_k_probs).
     """
     with tempfile.TemporaryDirectory() as tmpdir:
         tmpdir_path = Path(tmpdir)
@@ -162,101 +220,194 @@ def _infer_file(
                 probs  = torch.softmax(model(tensor), dim=1)[0].cpu().numpy()
                 all_probs.append(probs)
 
-        avg_probs = np.mean(all_probs, axis=0)
-        top_idx   = int(np.argmax(avg_probs))
-        return first_spec, _fmt_class(classes[top_idx]), float(avg_probs[top_idx])
+        avg_probs    = np.mean(all_probs, axis=0)
+        top_k_actual = min(top_k, len(classes))
+        indices      = np.argsort(avg_probs)[::-1][:top_k_actual]
+        top_k_names  = [_fmt_class(classes[i]) for i in indices]
+        top_k_probs  = [float(avg_probs[i]) for i in indices]
+
+        return first_spec, top_k_names, top_k_probs
+
+
+def _build_species_card(species: str, confidence: float) -> str:
+    info     = SPECIES_INFO.get(species, {})
+    common   = info.get("common", species)
+    habitat  = info.get("habitat", "—")
+    xc_query = info.get("xc_query", species.replace(" ", "+"))
+    xc_url   = f"https://xeno-canto.org/explore?query={xc_query}"
+    fill_w   = f"{confidence * 100:.1f}%"
+
+    return f"""
+<div class="species-card">
+  <h2>🐦 {common}</h2>
+  <p class="sci">{species}</p>
+  <div class="row">
+    <span class="lbl">Habitat</span>
+    <span class="val">{habitat}</span>
+  </div>
+  <div class="row">
+    <span class="lbl">Confidence</span>
+    <span class="val"><b>{confidence:.1%}</b></span>
+  </div>
+  <div class="conf-bar">
+    <div class="conf-fill" style="width:{fill_w}"></div>
+  </div>
+  <a href="{xc_url}" target="_blank">🔗 Listen on Xeno-canto →</a>
+</div>
+"""
+
+
+def _empty_bar_df() -> pd.DataFrame:
+    return pd.DataFrame({"Species": [], "Confidence (%)": []})
+
+
+def _make_bar_df(names: list[str], probs: list[float]) -> pd.DataFrame:
+    return pd.DataFrame({
+        "Species":        names,
+        "Confidence (%)": [round(p * 100, 1) for p in probs],
+    })
 
 
 # ---------------------------------------------------------------------------
-# Main inference function (multi-file)
+# Main inference function — generator for progressive updates (D)
 # ---------------------------------------------------------------------------
 
-def classify_files(
-    files,
-    checkpoint: str,
-) -> tuple[list, pd.DataFrame, str]:
-    """Process one or more audio files and return aggregated results.
+def classify_files(files, checkpoint: str, progress=gr.Progress(track_tqdm=True)):
+    """Process one or more audio files, yielding progressive UI updates."""
+    _empty = _empty_bar_df()
+    _empty_df = pd.DataFrame(columns=["", "File", "Species", "Confidence"])
 
-    Returns
-    -------
-    gallery : list of (PIL Image, caption) for gr.Gallery
-    df      : summary DataFrame for gr.Dataframe
-    status  : status string
-    """
-    empty_df = pd.DataFrame(columns=["File", "Species", "Confidence"])
+    def _bail(msg):
+        yield [], _empty_df, msg, gr.update(choices=[], value=None), {}, None, _empty, ""
 
     if not files:
-        return [], empty_df, "Upload one or more .mp3 / .wav files (or a .zip), then click Classify."
+        yield from _bail("Upload one or more .mp3 / .wav files (or a .zip), then click Classify.")
+        return
 
     checkpoint_path = Path(checkpoint)
     if not checkpoint_path.exists():
-        return (
-            [],
-            empty_df,
+        yield from _bail(
             f"Checkpoint not found: {checkpoint}\n"
-            "Train the model first or point to an existing .pt file.",
+            "Train the model first or point to an existing .pt file."
         )
+        return
 
     try:
         audio_cfg = _load_audio_config()
         model, classes, img_size = load_model(str(checkpoint_path), device="cpu")
         _, val_tf = get_transforms(img_size)
         device    = torch.device("cpu")
+    except Exception as exc:
+        yield from _bail(f"Model load error: {exc}")
+        return
 
-        if not isinstance(files, list):
-            files = [files]
+    if not isinstance(files, list):
+        files = [files]
 
-        gallery: list[tuple[Image.Image, str]] = []
-        rows: list[dict] = []
-        errors: list[str] = []
+    # Persistent temp dir — survives generator completion so audio playback works
+    run_audio_dir = Path(tempfile.mkdtemp(prefix="bac_audio_"))
 
-        # Keep zip_tmpdir alive for the entire inference loop so that files
-        # extracted from ZIP archives are not deleted before they are read.
-        with tempfile.TemporaryDirectory() as zip_tmpdir:
-            expanded = _expand_files(files, Path(zip_tmpdir))
+    gallery: list[tuple[Image.Image, str]] = []
+    rows:    list[dict]                    = []
+    state:   dict                          = {}
+    errors:  list[str]                     = []
 
-            if not expanded:
-                return [], empty_df, "No .mp3 or .wav files found in the uploaded files."
+    with tempfile.TemporaryDirectory() as zip_tmpdir:
+        expanded = _expand_files(files, Path(zip_tmpdir))
 
-            for path in expanded:
-                fname = Path(path).name
-                try:
-                    spec, top_name, top_conf = _infer_file(
-                        str(path), model, classes, audio_cfg, val_tf, device
-                    )
-                except RuntimeError as exc:
-                    errors.append(str(exc))
-                    rows.append({"File": fname, "Species": f"Error: {exc}", "Confidence": "—"})
-                    continue
+        if not expanded:
+            yield from _bail("No .mp3 or .wav files found in the uploaded files.")
+            return
 
-                caption = f"{fname}\n{top_name} ({top_conf:.1%})"
-                gallery.append((spec, caption))
-                rows.append({
-                    "File":       fname,
-                    "Species":    top_name,
-                    "Confidence": f"{top_conf:.1%}",
-                })
+        for i, path in enumerate(expanded):
+            fname = Path(path).name
+            progress((i + 1) / len(expanded), desc=f"Analysing {fname} …")
 
-        df = pd.DataFrame(rows)
-        ok_count  = len(expanded) - len(errors)
-        status    = (
-            f"Processed {ok_count}/{len(expanded)} file(s)  ·  "
-            f"model: {checkpoint_path.name}  ·  "
-            f"clip duration: {audio_cfg.clip_duration}s"
-        )
-        if errors:
-            status += f"\n⚠️  {len(errors)} file(s) failed — check that ffmpeg is installed for MP3 support."
-        return gallery, df, status
+            # Copy to persistent dir so audio player can access it after completion
+            dst = run_audio_dir / fname
+            shutil.copy2(path, dst)
 
-    except Exception as exc:  # noqa: BLE001
-        return [], empty_df, f"Error: {exc}"
+            try:
+                spec, top_names, top_probs = _infer_file(
+                    str(path), model, classes, audio_cfg, val_tf, device
+                )
+            except RuntimeError as exc:
+                errors.append(str(exc))
+                rows.append({"": "🔴", "File": fname, "Species": "Error", "Confidence": "—"})
+                df = pd.DataFrame(rows)
+                yield (
+                    gallery, df,
+                    f"⚠️  Error on {fname}: {exc}",
+                    gr.update(choices=list(state.keys()), value=None),
+                    state, None, _empty, "",
+                )
+                continue
+
+            badge = _conf_badge(top_probs[0])
+            gallery.append((spec, f"{fname}\n{top_names[0]} ({top_probs[0]:.1%})"))
+            rows.append({
+                "":           badge,
+                "File":       fname,
+                "Species":    top_names[0],
+                "Confidence": f"{top_probs[0]:.1%}",
+            })
+            state[fname] = {
+                "audio_path": str(dst),
+                "top_names":  top_names,
+                "top_probs":  top_probs,
+            }
+
+            df      = pd.DataFrame(rows)
+            choices = list(state.keys())
+            bar_df  = _make_bar_df(top_names, top_probs)
+            card    = _build_species_card(top_names[0], top_probs[0])
+
+            yield (
+                gallery, df,
+                f"⏳  Processing {i + 1}/{len(expanded)} — {fname}",
+                gr.update(choices=choices, value=fname),
+                state, str(dst), bar_df, card,
+            )
+
+    ok_count = len(expanded) - len(errors)
+    status   = (
+        f"✅  Done — {ok_count}/{len(expanded)} file(s) classified  ·  "
+        f"model: {checkpoint_path.name}  ·  clip: {audio_cfg.clip_duration}s"
+    )
+    if errors:
+        status += f"\n⚠️  {len(errors)} file(s) failed — check that ffmpeg is installed."
+
+    last = list(state.keys())[-1] if state else None
+    bar_df = _make_bar_df(state[last]["top_names"], state[last]["top_probs"]) if last else _empty
+    card   = _build_species_card(state[last]["top_names"][0], state[last]["top_probs"][0]) if last else ""
+
+    yield (
+        gallery, pd.DataFrame(rows), status,
+        gr.update(choices=list(state.keys()), value=last),
+        state,
+        state[last]["audio_path"] if last else None,
+        bar_df, card,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Detail-panel callback — triggered when user changes the file dropdown
+# ---------------------------------------------------------------------------
+
+def show_detail(selected: str, state: dict):
+    if not selected or not state or selected not in state:
+        return None, _empty_bar_df(), ""
+    d      = state[selected]
+    bar_df = _make_bar_df(d["top_names"], d["top_probs"])
+    card   = _build_species_card(d["top_names"][0], d["top_probs"][0])
+    return d["audio_path"], bar_df, card
 
 
 # ---------------------------------------------------------------------------
 # Gradio UI
 # ---------------------------------------------------------------------------
 
-_SPECIES = [
+_SPECIES_DISPLAY = [
     "Ring ouzel", "Black redstart", "Alpine accentor", "Yellow-billed chough",
     "Red-billed chough", "Wallcreeper", "Water pipit", "White-winged snowfinch",
     "Rock ptarmigan", "Black woodpecker", "Western capercaillie", "Three-toed woodpecker",
@@ -266,13 +417,15 @@ _SPECIES = [
 
 _PILLS_HTML = (
     '<div class="species-pills">'
-    + "".join(f'<span class="species-pill">{s}</span>' for s in _SPECIES)
+    + "".join(f'<span class="species-pill">{s}</span>' for s in _SPECIES_DISPLAY)
     + "</div>"
 )
 
 
 def build_ui(checkpoint: str = DEFAULT_CHECKPOINT) -> gr.Blocks:
-    with gr.Blocks(title="Bird Acoustics Classifier") as demo:
+    results_state = gr.State({})
+
+    with gr.Blocks(title="Bird Acoustics Classifier", theme=THEME, css=CSS) as demo:
 
         # ── Header ──────────────────────────────────────────────────────────
         gr.HTML("""
@@ -288,12 +441,12 @@ def build_ui(checkpoint: str = DEFAULT_CHECKPOINT) -> gr.Blocks:
             '20 Alpine species (Italy / Austria / Switzerland):</span>'
             f"{_PILLS_HTML}</div>"
         )
-        gr.HTML('<hr style="border:none;border-top:1px solid #e0e0e0;margin:4px 0 12px">')
+        gr.HTML('<hr style="border:none;border-top:1px solid #e0e0e0;margin:4px 0 16px">')
 
-        # ── Main layout ──────────────────────────────────────────────────────
+        # ── Main row ─────────────────────────────────────────────────────────
         with gr.Row(equal_height=False):
 
-            # Left panel ─ upload + controls
+            # Left panel — upload + controls
             with gr.Column(scale=1, min_width=260):
                 gr.Markdown("### Upload")
                 file_input = gr.File(
@@ -309,15 +462,15 @@ def build_ui(checkpoint: str = DEFAULT_CHECKPOINT) -> gr.Blocks:
                     )
                 run_btn = gr.Button("🔍  Classify", variant="primary", elem_id="run-btn")
                 status_output = gr.Textbox(
-                    label="Status", interactive=False, lines=2, max_lines=3,
+                    label="Status", interactive=False, lines=2, max_lines=4,
                 )
 
-            # Right panel ─ results
+            # Right panel — results tabs
             with gr.Column(scale=3):
                 with gr.Tabs():
                     with gr.Tab("📊 Summary"):
                         table_output = gr.Dataframe(
-                            headers=["File", "Species", "Confidence"],
+                            headers=["", "File", "Species", "Confidence"],
                             label=None,
                             interactive=False,
                             wrap=True,
@@ -330,18 +483,64 @@ def build_ui(checkpoint: str = DEFAULT_CHECKPOINT) -> gr.Blocks:
                             object_fit="contain",
                         )
 
+        # ── Detail section ───────────────────────────────────────────────────
+        gr.HTML('<hr style="border:none;border-top:1px solid #e0e0e0;margin:18px 0 12px">')
+        gr.Markdown("### Detail view")
+
+        file_dropdown = gr.Dropdown(
+            choices=[],
+            label="Select a file to inspect",
+            interactive=True,
+        )
+
+        with gr.Row(equal_height=False):
+
+            # B — Audio player
+            with gr.Column(scale=1, min_width=220):
+                audio_player = gr.Audio(label="Audio playback", interactive=False)
+
+            # A — Top-K bar chart
+            with gr.Column(scale=2):
+                bar_plot = gr.BarPlot(
+                    value=_empty_bar_df(),
+                    x="Species",
+                    y="Confidence (%)",
+                    title=f"Top-{TOP_K} predictions",
+                    color="Species",
+                    y_lim=[0, 100],
+                    height=260,
+                    tooltip=["Species", "Confidence (%)"],
+                )
+
+            # C — Species info card
+            with gr.Column(scale=1, min_width=220):
+                species_card = gr.HTML("")
+
         # ── Footer ──────────────────────────────────────────────────────────
         gr.HTML(
             '<p class="app-footer">'
-            'Audio data from <a href="https://xeno-canto.org" target="_blank">Xeno-canto</a> &nbsp;·&nbsp;'
-            'Alpine zone &nbsp;·&nbsp; Italy / Austria / Switzerland'
+            'Audio data from <a href="https://xeno-canto.org" target="_blank">Xeno-canto</a>'
+            ' &nbsp;·&nbsp; Alpine zone &nbsp;·&nbsp; Italy / Austria / Switzerland'
             '</p>'
         )
+
+        # ── Events ──────────────────────────────────────────────────────────
+        _classify_outputs = [
+            gallery_output, table_output, status_output,
+            file_dropdown, results_state,
+            audio_player, bar_plot, species_card,
+        ]
 
         run_btn.click(
             fn=classify_files,
             inputs=[file_input, checkpoint_input],
-            outputs=[gallery_output, table_output, status_output],
+            outputs=_classify_outputs,
+        )
+
+        file_dropdown.change(
+            fn=show_detail,
+            inputs=[file_dropdown, results_state],
+            outputs=[audio_player, bar_plot, species_card],
         )
 
     return demo
@@ -379,6 +578,4 @@ if __name__ == "__main__":
         server_port=args.port,
         inbrowser=True,
         max_file_size="200mb",
-        theme=gr.themes.Soft(),
-        css=CSS,
     )
