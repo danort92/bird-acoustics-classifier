@@ -38,6 +38,15 @@ from src.preprocessing import AudioConfig, SpectrogramConverter
 # ---------------------------------------------------------------------------
 
 DEFAULT_CHECKPOINT = "models/best_model.pt"
+
+
+def _discover_checkpoints(default: str = DEFAULT_CHECKPOINT) -> tuple[list[str], str]:
+    """Return (choices, best_default) scanning models/ for .pt files."""
+    found = sorted(str(p) for p in Path("models").glob("*.pt")) if Path("models").exists() else []
+    if not found:
+        found = [default]
+    best = default if default in found else found[0]
+    return found, best
 DEFAULT_CONFIG     = "config/default.yaml"
 TOP_K              = 5
 
@@ -425,6 +434,7 @@ _PILLS_HTML = (
 
 
 def build_ui(checkpoint: str = DEFAULT_CHECKPOINT) -> gr.Blocks:
+    _ckpt_choices, _ckpt_default = _discover_checkpoints(checkpoint)
     with gr.Blocks(title="Bird Acoustics Classifier") as demo:
 
         # ── Header ──────────────────────────────────────────────────────────
@@ -455,10 +465,11 @@ def build_ui(checkpoint: str = DEFAULT_CHECKPOINT) -> gr.Blocks:
                     file_types=[".mp3", ".wav", ".zip"],
                 )
                 with gr.Accordion("⚙️ Settings", open=False):
-                    checkpoint_input = gr.Textbox(
-                        label="Checkpoint path",
-                        value=checkpoint,
-                        placeholder="models/best_model.pt",
+                    checkpoint_input = gr.Dropdown(
+                        label="Model checkpoint",
+                        choices=_ckpt_choices,
+                        value=_ckpt_default,
+                        interactive=True,
                     )
                 run_btn = gr.Button("🔍  Classify", variant="primary", elem_id="run-btn")
                 status_output = gr.Textbox(
