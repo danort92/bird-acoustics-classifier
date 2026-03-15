@@ -206,34 +206,36 @@ def classify_files(
         if not isinstance(files, list):
             files = [files]
 
+        gallery: list[tuple[Image.Image, str]] = []
+        rows: list[dict] = []
+        errors: list[str] = []
+
+        # Keep zip_tmpdir alive for the entire inference loop so that files
+        # extracted from ZIP archives are not deleted before they are read.
         with tempfile.TemporaryDirectory() as zip_tmpdir:
             expanded = _expand_files(files, Path(zip_tmpdir))
 
-        if not expanded:
-            return [], empty_df, "No .mp3 or .wav files found in the uploaded files."
+            if not expanded:
+                return [], empty_df, "No .mp3 or .wav files found in the uploaded files."
 
-        gallery: list[tuple[Image.Image, str]] = []
-        rows: list[dict] = []
+            for path in expanded:
+                fname = Path(path).name
+                try:
+                    spec, top_name, top_conf = _infer_file(
+                        str(path), model, classes, audio_cfg, val_tf, device
+                    )
+                except RuntimeError as exc:
+                    errors.append(str(exc))
+                    rows.append({"File": fname, "Species": f"Error: {exc}", "Confidence": "—"})
+                    continue
 
-        errors: list[str] = []
-        for path in expanded:
-            fname = Path(path).name
-            try:
-                spec, top_name, top_conf = _infer_file(
-                    str(path), model, classes, audio_cfg, val_tf, device
-                )
-            except RuntimeError as exc:
-                errors.append(str(exc))
-                rows.append({"File": fname, "Species": f"Error: {exc}", "Confidence": "—"})
-                continue
-
-            caption = f"{fname}\n{top_name} ({top_conf:.1%})"
-            gallery.append((spec, caption))
-            rows.append({
-                "File":       fname,
-                "Species":    top_name,
-                "Confidence": f"{top_conf:.1%}",
-            })
+                caption = f"{fname}\n{top_name} ({top_conf:.1%})"
+                gallery.append((spec, caption))
+                rows.append({
+                    "File":       fname,
+                    "Species":    top_name,
+                    "Confidence": f"{top_conf:.1%}",
+                })
 
         df = pd.DataFrame(rows)
         ok_count  = len(expanded) - len(errors)
