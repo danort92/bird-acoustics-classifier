@@ -242,7 +242,7 @@ _PILLS_HTML = (
 
 
 def build_ui(checkpoint: str = DEFAULT_CHECKPOINT) -> gr.Blocks:
-    with gr.Blocks(title="Bird Acoustics Classifier", css=CSS) as demo:
+    with gr.Blocks(title="Bird Acoustics Classifier") as demo:
 
         # ── Header ──────────────────────────────────────────────────────────
         gr.HTML("""
@@ -339,8 +339,8 @@ def _parse_args() -> argparse.Namespace:
         help="Create a public Gradio share link",
     )
     parser.add_argument(
-        "--port", type=int, default=7860,
-        help="Port to run the server on",
+        "--port", type=int, default=None,
+        help="Port to run the server on (default: auto)",
     )
     return parser.parse_args()
 
@@ -353,4 +353,5 @@ if __name__ == "__main__":
         server_port=args.port,
         max_file_size="200mb",
         theme=gr.themes.Soft(),
+        css=CSS,
     )
