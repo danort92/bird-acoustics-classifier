@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import sys
 import tempfile
+import zipfile
 from pathlib import Path
 
 import gradio as gr
@@ -104,6 +105,26 @@ def _resolve_path(f) -> str:
     return f.name  # UploadedFile-like object
 
 
+def _expand_files(files: list, tmpdir: Path) -> list[str]:
+    """Expand a mixed list of audio files and ZIPs into a flat list of audio paths.
+
+    ZIP contents are extracted under *tmpdir*.
+    """
+    audio_suffixes = {".mp3", ".wav"}
+    result: list[str] = []
+    for f in files:
+        path = Path(_resolve_path(f))
+        if path.suffix.lower() == ".zip":
+            with zipfile.ZipFile(path) as zf:
+                for member in zf.namelist():
+                    if Path(member).suffix.lower() in audio_suffixes:
+                        extracted = zf.extract(member, path=tmpdir)
+                        result.append(extracted)
+        elif path.suffix.lower() in audio_suffixes:
+            result.append(str(path))
+    return result
+
+
 def _infer_file(
     audio_path: str,
     model,
@@ -163,7 +184,7 @@ def classify_files(
     empty_df = pd.DataFrame(columns=["File", "Top species", "Confidence", "Clips"])
 
     if not files:
-        return [], empty_df, "Upload one or more .mp3 / .wav files, then click Classify."
+        return [], empty_df, "Upload one or more .mp3 / .wav files (or a .zip), then click Classify."
 
     checkpoint_path = Path(checkpoint)
     if not checkpoint_path.exists():
@@ -183,14 +204,19 @@ def classify_files(
         if not isinstance(files, list):
             files = [files]
 
+        with tempfile.TemporaryDirectory() as zip_tmpdir:
+            expanded = _expand_files(files, Path(zip_tmpdir))
+
+        if not expanded:
+            return [], empty_df, "No .mp3 or .wav files found in the uploaded files."
+
         gallery: list[tuple[Image.Image, str]] = []
         rows: list[dict] = []
 
-        for f in files:
-            path  = _resolve_path(f)
+        for path in expanded:
             fname = Path(path).name
             spec, preds, n_clips = _infer_file(
-                path, model, classes, audio_cfg, val_tf, device, top_k
+                str(path), model, classes, audio_cfg, val_tf, device, top_k
             )
 
             if n_clips == 0:
@@ -212,7 +238,7 @@ def classify_files(
 
         df = pd.DataFrame(rows)
         status = (
-            f"Processed {len(files)} file(s)  ·  "
+            f"Processed {len(expanded)} file(s)  ·  "
             f"model: {checkpoint_path.name}  ·  "
             f"clip duration: {audio_cfg.clip_duration}s"
         )
@@ -267,9 +293,9 @@ def build_ui(checkpoint: str = DEFAULT_CHECKPOINT) -> gr.Blocks:
             with gr.Column(scale=1, min_width=260):
                 gr.Markdown("### Upload")
                 file_input = gr.File(
-                    label="Audio files (.mp3 / .wav)",
+                    label="Audio files (.mp3 / .wav) or .zip archive",
                     file_count="multiple",
-                    file_types=[".mp3", ".wav"],
+                    file_types=[".mp3", ".wav", ".zip"],
                 )
                 with gr.Accordion("⚙️ Settings", open=False):
                     checkpoint_input = gr.Textbox(
