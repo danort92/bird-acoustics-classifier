@@ -30,7 +30,7 @@ from PIL import Image
 from sklearn.model_selection import train_test_split
 from torch.optim import Adam
 from torch.optim.lr_scheduler import CosineAnnealingLR
-from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
+from torch.utils.data import DataLoader, Dataset
 from torchvision import models, transforms
 from tqdm.auto import tqdm
 
@@ -130,8 +130,6 @@ class TrainingConfig:
     augment_strategy:     str   = "specaugment"
     # Label smoothing: 0.0 = off, 0.1 recommended to reduce overconfidence
     label_smoothing:      float = 0.1
-    # WeightedRandomSampler to balance rare species during training
-    use_weighted_sampler: bool  = True
     # Progressive unfreezing: train head only → unfreeze backbone at unfreeze_epoch
     progressive_unfreeze: bool  = True
     unfreeze_epoch:       int   = 5
@@ -161,7 +159,6 @@ class TrainingConfig:
             img_size             = tuple(a.get("img_size",       [224, 224])),
             augment_strategy     = t.get("augment_strategy",     "specaugment"),
             label_smoothing      = t.get("label_smoothing",      0.1),
-            use_weighted_sampler = t.get("use_weighted_sampler", True),
             progressive_unfreeze = t.get("progressive_unfreeze", True),
             unfreeze_epoch       = t.get("unfreeze_epoch",       5),
             experiment_name      = m.get("experiment_name",      "bird-acoustics-classifier"),
@@ -384,10 +381,6 @@ class BirdTrainer:
         )
 
         def _make_ds(idx: List[int], tf) -> BirdDataset:
-            # Build a standalone BirdDataset whose .samples list is already
-            # filtered to the requested split.  Indices are always 0…len(idx)-1,
-            # so no Subset wrapper is needed and WeightedRandomSampler works
-            # without any local→global mapping layer.
             ds = BirdDataset.__new__(BirdDataset)
             ds.processed_dir = ref_ds.processed_dir
             ds.classes       = ref_ds.classes
@@ -404,19 +397,10 @@ class BirdTrainer:
             persistent_workers = nw > 0,
         )
 
-        if cfg.use_weighted_sampler:
-            class_counts  = np.bincount(train_labels, minlength=num_classes).astype(float)
-            class_weights = 1.0 / np.maximum(class_counts, 1.0)
-            sample_w = torch.tensor([class_weights[l] for l in train_labels], dtype=torch.float)
-            sampler  = WeightedRandomSampler(sample_w, num_samples=len(sample_w), replacement=True)
-            train_loader = DataLoader(_make_ds(train_idx, train_tf), sampler=sampler, **kw)
-        else:
-            train_loader = DataLoader(_make_ds(train_idx, train_tf), shuffle=True, **kw)
-
         return (
-            train_loader,
-            DataLoader(_make_ds(val_idx,  val_tf), shuffle=False, **kw),
-            DataLoader(_make_ds(test_idx, val_tf), shuffle=False, **kw),
+            DataLoader(_make_ds(train_idx, train_tf), shuffle=True,  **kw),
+            DataLoader(_make_ds(val_idx,   val_tf),   shuffle=False, **kw),
+            DataLoader(_make_ds(test_idx,  val_tf),   shuffle=False, **kw),
             num_classes,
         )
 
@@ -499,7 +483,6 @@ class BirdTrainer:
                 "scheduler":            "cosine" if cfg.use_scheduler else "none",
                 "augment_strategy":     cfg.augment_strategy,
                 "label_smoothing":      cfg.label_smoothing,
-                "use_weighted_sampler": cfg.use_weighted_sampler,
                 "progressive_unfreeze": cfg.progressive_unfreeze,
                 "unfreeze_epoch":       cfg.unfreeze_epoch,
             })
