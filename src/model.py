@@ -30,7 +30,7 @@ from PIL import Image
 from sklearn.model_selection import train_test_split
 from torch.optim import Adam
 from torch.optim.lr_scheduler import CosineAnnealingLR
-from torch.utils.data import DataLoader, Dataset, Subset, WeightedRandomSampler
+from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 from torchvision import models, transforms
 from tqdm.auto import tqdm
 
@@ -383,18 +383,18 @@ class BirdTrainer:
             f"train={len(train_idx)}  val={len(val_idx)}  test={len(test_idx)}"
         )
 
-        def _subset(idx: List[int], tf) -> Subset:
-            # Re-use ref_ds.samples so all three subsets share the same file list
-            # and indices.  Creating a fresh BirdDataset here risks a different
-            # file count if the directory is modified between scans, which makes
-            # the global indices (0..N-1) overflow the new dataset's samples list.
+        def _make_ds(idx: List[int], tf) -> BirdDataset:
+            # Build a standalone BirdDataset whose .samples list is already
+            # filtered to the requested split.  Indices are always 0…len(idx)-1,
+            # so no Subset wrapper is needed and WeightedRandomSampler works
+            # without any local→global mapping layer.
             ds = BirdDataset.__new__(BirdDataset)
             ds.processed_dir = ref_ds.processed_dir
             ds.classes       = ref_ds.classes
             ds.class_to_idx  = ref_ds.class_to_idx
-            ds.samples       = ref_ds.samples
+            ds.samples       = [ref_ds.samples[i] for i in idx]
             ds.transform     = tf
-            return Subset(ds, idx)
+            return ds
 
         nw = _safe_num_workers(cfg.num_workers)
         kw = dict(
@@ -404,30 +404,19 @@ class BirdTrainer:
             persistent_workers = nw > 0,
         )
 
-        # WeightedRandomSampler: over-sample rare species during training.
-        # Build a flat dataset (pre-filtered to train_idx) so the sampler
-        # generates indices directly into len(train_idx) — no Subset mapping
-        # layer in between, which avoids an IndexError on some PyTorch builds.
         if cfg.use_weighted_sampler:
-            ds_train = BirdDataset.__new__(BirdDataset)
-            ds_train.processed_dir = ref_ds.processed_dir
-            ds_train.classes       = ref_ds.classes
-            ds_train.class_to_idx  = ref_ds.class_to_idx
-            ds_train.samples       = [ref_ds.samples[i] for i in train_idx]
-            ds_train.transform     = train_tf
-
             class_counts  = np.bincount(train_labels, minlength=num_classes).astype(float)
             class_weights = 1.0 / np.maximum(class_counts, 1.0)
             sample_w = torch.tensor([class_weights[l] for l in train_labels], dtype=torch.float)
             sampler  = WeightedRandomSampler(sample_w, num_samples=len(sample_w), replacement=True)
-            train_loader = DataLoader(ds_train, sampler=sampler, **kw)
+            train_loader = DataLoader(_make_ds(train_idx, train_tf), sampler=sampler, **kw)
         else:
-            train_loader = DataLoader(_subset(train_idx, train_tf), shuffle=True, **kw)
+            train_loader = DataLoader(_make_ds(train_idx, train_tf), shuffle=True, **kw)
 
         return (
             train_loader,
-            DataLoader(_subset(val_idx,  val_tf), shuffle=False, **kw),
-            DataLoader(_subset(test_idx, val_tf), shuffle=False, **kw),
+            DataLoader(_make_ds(val_idx,  val_tf), shuffle=False, **kw),
+            DataLoader(_make_ds(test_idx, val_tf), shuffle=False, **kw),
             num_classes,
         )
 
