@@ -30,7 +30,7 @@ from PIL import Image
 from sklearn.model_selection import train_test_split
 from torch.optim import Adam
 from torch.optim.lr_scheduler import CosineAnnealingLR
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 from torchvision import models, transforms
 from tqdm.auto import tqdm
 
@@ -133,6 +133,7 @@ class TrainingConfig:
     # Progressive unfreezing: train head only → unfreeze backbone at unfreeze_epoch
     progressive_unfreeze: bool  = True
     unfreeze_epoch:       int   = 5
+    use_weighted_sampler: bool  = True
     experiment_name:      str   = "bird-acoustics-classifier"
     tracking_uri:         str   = "mlruns"
 
@@ -159,9 +160,10 @@ class TrainingConfig:
             img_size             = tuple(a.get("img_size",       [224, 224])),
             augment_strategy     = t.get("augment_strategy",     "specaugment"),
             label_smoothing      = t.get("label_smoothing",      0.1),
-            progressive_unfreeze = t.get("progressive_unfreeze", True),
-            unfreeze_epoch       = t.get("unfreeze_epoch",       5),
-            experiment_name      = m.get("experiment_name",      "bird-acoustics-classifier"),
+            progressive_unfreeze = t.get("progressive_unfreeze",  True),
+            unfreeze_epoch       = t.get("unfreeze_epoch",        5),
+            use_weighted_sampler = t.get("use_weighted_sampler",  True),
+            experiment_name      = m.get("experiment_name",       "bird-acoustics-classifier"),
             tracking_uri         = m.get("tracking_uri",         "mlruns"),
         )
 
@@ -397,8 +399,25 @@ class BirdTrainer:
             persistent_workers = nw > 0,
         )
 
+        train_ds = _make_ds(train_idx, train_tf)
+
+        if cfg.use_weighted_sampler:
+            train_labels = [train_ds.samples[i][1] for i in range(len(train_ds))]
+            class_counts = np.bincount(train_labels, minlength=num_classes).astype(float)
+            class_weights = 1.0 / np.where(class_counts > 0, class_counts, 1.0)
+            sample_weights = [class_weights[lbl] for lbl in train_labels]
+            sampler = WeightedRandomSampler(
+                weights=sample_weights,
+                num_samples=len(sample_weights),
+                replacement=True,
+            )
+            logger.info("Using WeightedRandomSampler — class counts: %s", class_counts.astype(int).tolist())
+            train_loader = DataLoader(train_ds, sampler=sampler, **kw)
+        else:
+            train_loader = DataLoader(train_ds, shuffle=True, **kw)
+
         return (
-            DataLoader(_make_ds(train_idx, train_tf), shuffle=True,  **kw),
+            train_loader,
             DataLoader(_make_ds(val_idx,   val_tf),   shuffle=False, **kw),
             DataLoader(_make_ds(test_idx,  val_tf),   shuffle=False, **kw),
             num_classes,
