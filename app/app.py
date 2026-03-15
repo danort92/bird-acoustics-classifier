@@ -230,4 +230,4 @@ def _parse_args() -> argparse.Namespace:
 if __name__ == "__main__":
     args = _parse_args()
     demo = build_ui(checkpoint=args.checkpoint)
-    demo.launch(share=args.share, server_port=args.port)
+    demo.launch(share=args.share, server_port=args.port, max_file_size="200mb")
