@@ -296,7 +296,7 @@ def _make_bar_fig(names: list[str], probs: list[float]):
 def classify_files(files, checkpoint: str, progress=gr.Progress(track_tqdm=True)):
     """Process one or more audio files, yielding progressive UI updates."""
     _empty = _empty_bar_fig()
-    _empty_df = pd.DataFrame(columns=["", "File", "Species", "Confidence"])
+    _empty_df = pd.DataFrame(columns=["", "File", "Predicted Species", "Confidence"])
 
     def _bail(msg):
         yield [], _empty_df, msg, gr.Dropdown(choices=[], value=None, interactive=True, label="Select a file to inspect"), {}, None, _empty, ""
@@ -354,16 +354,16 @@ def classify_files(files, checkpoint: str, progress=gr.Progress(track_tqdm=True)
                 )
             except Exception as exc:
                 errors.append(str(exc))
-                rows.append({"": "🔴", "File": fname, "Species": "Error", "Confidence": "—"})
+                rows.append({"": "🔴", "File": fname, "Predicted Species": "Error", "Confidence": "—"})
                 continue
 
             badge = _conf_badge(top_probs[0])
             gallery.append((spec, f"{fname}\n{top_names[0]} ({top_probs[0]:.1%})"))
             rows.append({
-                "":           badge,
-                "File":       fname,
-                "Species":    top_names[0],
-                "Confidence": f"{top_probs[0]:.1%}",
+                "":                  badge,
+                "File":              fname,
+                "Predicted Species": top_names[0],
+                "Confidence":        f"{top_probs[0]:.1%}",
             })
             state[fname] = {
                 "audio_path": str(dst),
@@ -475,7 +475,7 @@ def build_ui(checkpoint: str = DEFAULT_CHECKPOINT) -> gr.Blocks:
                             '</p>'
                         )
                         table_output = gr.Dataframe(
-                            headers=["", "File", "Species", "Confidence"],
+                            headers=["", "File", "Predicted Species", "Confidence"],
                             label=None,
                             interactive=False,
                             wrap=True,
