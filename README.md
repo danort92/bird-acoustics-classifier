@@ -1,5 +1,15 @@
 # Bird Acoustics Classifier
 
+![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
+![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?logo=pytorch&logoColor=white)
+![EfficientNet](https://img.shields.io/badge/Model-EfficientNet--B0-blueviolet)
+![librosa](https://img.shields.io/badge/Audio-librosa-orange)
+![Gradio](https://img.shields.io/badge/UI-Gradio-F97316?logo=gradio&logoColor=white)
+![MLflow](https://img.shields.io/badge/Tracking-MLflow-0194E2?logo=mlflow&logoColor=white)
+![Xeno--canto](https://img.shields.io/badge/Data-Xeno--canto%20API-4CAF50)
+![Species](https://img.shields.io/badge/Species-20%20Alpine-8BC34A)
+![License](https://img.shields.io/badge/License-MIT-yellow)
+
 Automatic bird species recognition from audio recordings using **EfficientNet-B0 fine-tuning on mel spectrograms**, with data sourced from the **Xeno-canto API**.
 
 Target habitat: **Alpine zone** (Italy / Austria / Switzerland) — 20 characteristic species:
