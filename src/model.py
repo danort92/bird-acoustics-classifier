@@ -384,7 +384,16 @@ class BirdTrainer:
         )
 
         def _subset(idx: List[int], tf) -> Subset:
-            ds = BirdDataset(cfg.processed_dir, transform=tf, species=species)
+            # Re-use ref_ds.samples so all three subsets share the same file list
+            # and indices.  Creating a fresh BirdDataset here risks a different
+            # file count if the directory is modified between scans, which makes
+            # the global indices (0..N-1) overflow the new dataset's samples list.
+            ds = BirdDataset.__new__(BirdDataset)
+            ds.processed_dir = ref_ds.processed_dir
+            ds.classes       = ref_ds.classes
+            ds.class_to_idx  = ref_ds.class_to_idx
+            ds.samples       = ref_ds.samples
+            ds.transform     = tf
             return Subset(ds, idx)
 
         nw = _safe_num_workers(cfg.num_workers)
