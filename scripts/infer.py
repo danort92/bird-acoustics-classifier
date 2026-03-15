@@ -65,7 +65,7 @@ def main() -> None:
 
     # Load model
     model, classes, img_size = load_model(args.checkpoint, device=args.device)
-    _, val_tf = get_transforms(img_size, augment=False)
+    _, val_tf = get_transforms(img_size)
 
     # Convert .mp3 → spectrogram PNGs in a temp directory
     with tempfile.TemporaryDirectory() as tmpdir:

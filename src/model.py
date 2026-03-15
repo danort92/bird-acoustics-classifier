@@ -16,6 +16,7 @@ Quick start:
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -338,7 +339,13 @@ class BirdTrainer:
             "lr":         [],
         }
 
-        mlflow.set_tracking_uri(cfg.tracking_uri)
+        # MLFLOW_TRACKING_URI env var takes precedence over config value.
+        # Set it to your DagsHub URL for remote tracking:
+        #   export MLFLOW_TRACKING_URI=https://dagshub.com/<user>/bird-acoustics-classifier.mlflow
+        #   export MLFLOW_TRACKING_USERNAME=<dagshub_username>
+        #   export MLFLOW_TRACKING_PASSWORD=<dagshub_token>
+        tracking_uri = os.getenv("MLFLOW_TRACKING_URI", cfg.tracking_uri)
+        mlflow.set_tracking_uri(tracking_uri)
         mlflow.set_experiment(cfg.experiment_name)
 
         _HDR = (

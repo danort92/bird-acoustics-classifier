@@ -58,4 +58,15 @@ training:
 
 mlflow:
   experiment_name: bird-acoustics-classifier
-  tracking_uri: mlruns
+  tracking_uri: mlruns        # local default; override via MLFLOW_TRACKING_URI env var
+  # --- Remote tracking on DagsHub (free) ----------------------------
+  # 1. Create a free account at https://dagshub.com
+  # 2. Connect this repository
+  # 3. Export the following variables before training:
+  #
+  #    export MLFLOW_TRACKING_URI=https://dagshub.com/<username>/bird-acoustics-classifier.mlflow
+  #    export MLFLOW_TRACKING_USERNAME=<your-dagshub-username>
+  #    export MLFLOW_TRACKING_PASSWORD=<your-dagshub-token>
+  #
+  # The env var overrides tracking_uri above; no code change needed.
+  # ------------------------------------------------------------------
