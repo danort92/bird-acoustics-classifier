@@ -242,7 +242,7 @@ _PILLS_HTML = (
 
 
 def build_ui(checkpoint: str = DEFAULT_CHECKPOINT) -> gr.Blocks:
-    with gr.Blocks(title="Bird Acoustics Classifier", theme=gr.themes.Soft(), css=CSS) as demo:
+    with gr.Blocks(title="Bird Acoustics Classifier", css=CSS) as demo:
 
         # ── Header ──────────────────────────────────────────────────────────
         gr.HTML("""
@@ -348,4 +348,9 @@ def _parse_args() -> argparse.Namespace:
 if __name__ == "__main__":
     args = _parse_args()
     demo = build_ui(checkpoint=args.checkpoint)
-    demo.launch(share=args.share, server_port=args.port, max_file_size="200mb")
+    demo.launch(
+        share=args.share,
+        server_port=args.port,
+        max_file_size="200mb",
+        theme=gr.themes.Soft(),
+    )
