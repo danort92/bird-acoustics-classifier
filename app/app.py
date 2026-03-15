@@ -134,15 +134,23 @@ def _infer_file(
 ) -> tuple[Image.Image | None, str, float]:
     """Run inference on a single audio file.
 
-    Returns (first_spectrogram, {species: confidence}, n_clips).
+    Returns (first_spectrogram, species_name, confidence).
+    Raises RuntimeError if the audio cannot be loaded or produces no clips.
     """
     with tempfile.TemporaryDirectory() as tmpdir:
         tmpdir_path = Path(tmpdir)
         converter   = SpectrogramConverter(output_dir=tmpdir, config=audio_cfg)
-        png_paths   = converter.convert_file(Path(audio_path), tmpdir_path, overwrite=True)
+
+        try:
+            png_paths = converter.convert_file(Path(audio_path), tmpdir_path, overwrite=True)
+        except Exception as exc:
+            raise RuntimeError(f"Failed to convert audio '{Path(audio_path).name}': {exc}") from exc
 
         if not png_paths:
-            return None, "", 0.0
+            raise RuntimeError(
+                f"No clips generated for '{Path(audio_path).name}'. "
+                "The file may be unreadable, too short, or require ffmpeg for MP3 decoding."
+            )
 
         first_spec = Image.open(png_paths[0]).convert("RGB")
 
@@ -154,9 +162,9 @@ def _infer_file(
                 probs  = torch.softmax(model(tensor), dim=1)[0].cpu().numpy()
                 all_probs.append(probs)
 
-    avg_probs = np.mean(all_probs, axis=0)
-    top_idx   = int(np.argmax(avg_probs))
-    return first_spec, _fmt_class(classes[top_idx]), float(avg_probs[top_idx])
+        avg_probs = np.mean(all_probs, axis=0)
+        top_idx   = int(np.argmax(avg_probs))
+        return first_spec, _fmt_class(classes[top_idx]), float(avg_probs[top_idx])
 
 
 # ---------------------------------------------------------------------------
@@ -207,14 +215,16 @@ def classify_files(
         gallery: list[tuple[Image.Image, str]] = []
         rows: list[dict] = []
 
+        errors: list[str] = []
         for path in expanded:
             fname = Path(path).name
-            spec, top_name, top_conf = _infer_file(
-                str(path), model, classes, audio_cfg, val_tf, device
-            )
-
-            if not top_name:
-                rows.append({"File": fname, "Species": "—", "Confidence": "—"})
+            try:
+                spec, top_name, top_conf = _infer_file(
+                    str(path), model, classes, audio_cfg, val_tf, device
+                )
+            except RuntimeError as exc:
+                errors.append(str(exc))
+                rows.append({"File": fname, "Species": f"Error: {exc}", "Confidence": "—"})
                 continue
 
             caption = f"{fname}\n{top_name} ({top_conf:.1%})"
@@ -226,11 +236,14 @@ def classify_files(
             })
 
         df = pd.DataFrame(rows)
-        status = (
-            f"Processed {len(expanded)} file(s)  ·  "
+        ok_count  = len(expanded) - len(errors)
+        status    = (
+            f"Processed {ok_count}/{len(expanded)} file(s)  ·  "
             f"model: {checkpoint_path.name}  ·  "
             f"clip duration: {audio_cfg.clip_duration}s"
         )
+        if errors:
+            status += f"\n⚠️  {len(errors)} file(s) failed — check that ffmpeg is installed for MP3 support."
         return gallery, df, status
 
     except Exception as exc:  # noqa: BLE001

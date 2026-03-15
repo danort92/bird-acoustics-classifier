@@ -4,6 +4,7 @@ torch
 torchvision
 torchaudio
 librosa
+soundfile
 gradio
 mlflow
 requests
