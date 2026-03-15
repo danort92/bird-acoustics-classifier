@@ -488,6 +488,11 @@ def build_ui(checkpoint: str = DEFAULT_CHECKPOINT) -> gr.Blocks:
             with gr.Column(scale=3):
                 with gr.Tabs():
                     with gr.Tab("📊 Summary"):
+                        gr.HTML(
+                            '<p style="font-size:0.78rem;color:#666;margin:0 0 6px">'
+                            '🟢 ≥ 80% &nbsp;·&nbsp; 🟡 40–79% &nbsp;·&nbsp; 🔴 &lt; 40%'
+                            '</p>'
+                        )
                         table_output = gr.Dataframe(
                             headers=["", "File", "Species", "Confidence"],
                             label=None,
