@@ -377,6 +377,7 @@ if __name__ == "__main__":
     demo.launch(
         share=args.share,
         server_port=args.port,
+        inbrowser=True,
         max_file_size="200mb",
         theme=gr.themes.Soft(),
         css=CSS,
